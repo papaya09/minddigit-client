@@ -62,7 +62,6 @@ class GameClient {
             .reconnectAttempts(5),
             .reconnectWait(2),
             .randomizationFactor(0.5),
-            .timeout(10),
             .connectParams(["transport": "polling"])
         ])
         socket = manager.defaultSocket
