@@ -439,13 +439,29 @@ class MainMenuViewController: UIViewController {
         let alert = UIAlertController(title: "Create Room", message: "Creating new \(gameStateManager.selectedGameMode.displayName) room...", preferredStyle: .alert)
         present(alert, animated: true)
         
-        DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
+        // Actually create room via API first
+        gameClient.createRoom(digits: gameStateManager.selectedGameMode.rawValue) { [weak self] result in
+            guard let self = self else { return }
+            
             alert.dismiss(animated: true) {
-                let roomCode = String(format: "%04d", Int.random(in: 1000...9999))
-                self.gameStateManager.currentRoomCode = roomCode
-                let playerAvatar = UserDefaults.standard.string(forKey: "playerAvatar") ?? "👤"
-                self.gameClient.joinRoom(code: roomCode, playerName: self.gameStateManager.playerName, avatar: playerAvatar)
-                self.navigateToGameplay()
+                switch result {
+                case .success(let roomCode):
+                    // Room created successfully, now join it
+                    self.gameStateManager.currentRoomCode = roomCode
+                    let playerAvatar = UserDefaults.standard.string(forKey: "playerAvatar") ?? "👤"
+                    self.gameClient.joinRoom(code: roomCode, playerName: self.gameStateManager.playerName, avatar: playerAvatar)
+                    self.navigateToGameplay()
+                    
+                case .failure(let error):
+                    // Show error message
+                    let errorAlert = UIAlertController(
+                        title: "Failed to Create Room", 
+                        message: "Could not create room: \(error.localizedDescription)\n\nPlease check your internet connection and try again.", 
+                        preferredStyle: .alert
+                    )
+                    errorAlert.addAction(UIAlertAction(title: "OK", style: .default))
+                    self.present(errorAlert, animated: true)
+                }
             }
         }
     }

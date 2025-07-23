@@ -1,7 +1,7 @@
 import SpriteKit
 
 class GameScene: SKScene {
-    
+
     // This class is now minimal - main functionality moved to UIKit controllers
     // (MainMenuViewController and GameplayViewController)
     
