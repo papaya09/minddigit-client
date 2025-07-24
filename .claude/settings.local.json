@@ -1,8 +1,18 @@
 {
+  "defaultMode": "bypassPermissions",
   "permissions": {
     "allow": [
       "Bash(xcodebuild:*)",
-      "Bash('xcodebuild -scheme NumberGame -destination \"\"platform=iOS Simulator,id=5AD10DD4-89C4-4914-B098-4BEAE20764A9\"\" clean build')"
+      "Bash('xcodebuild -scheme NumberGame -destination \"\"platform=iOS Simulator,id=5AD10DD4-89C4-4914-B098-4BEAE20764A9\"\" clean build')",
+      "Bash(swift package:*)",
+      "Bash(find:*)",
+      "Bash(timeout 60 xcodebuild:*)",
+      "Bash(rm:*)",
+      "Bash(xcrun simctl list:*)",
+      "Bash(xcrun simctl shutdown:*)",
+      "Bash(xcrun simctl boot:*)",
+      "Bash(xcrun simctl uninstall:*)",
+      "Bash(true)"
     ],
     "deny": []
   }
