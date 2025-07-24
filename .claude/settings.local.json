@@ -1,0 +1,9 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(xcodebuild:*)",
+      "Bash('xcodebuild -scheme NumberGame -destination \"\"platform=iOS Simulator,id=5AD10DD4-89C4-4914-B098-4BEAE20764A9\"\" clean build')"
+    ],
+    "deny": []
+  }
+}
