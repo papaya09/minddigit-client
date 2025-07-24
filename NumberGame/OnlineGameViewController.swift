@@ -24,7 +24,7 @@ class OnlineGameViewController: UIViewController {
     var yourSecret: String = ""
     
     // Network
-    let baseURL = "http://192.168.1.140:3001/api"
+    let baseURL = "https://minddigit-server.vercel.app/api"
     
     // UI Background
     private let backgroundImageView = UIImageView()

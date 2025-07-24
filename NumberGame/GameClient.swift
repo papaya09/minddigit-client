@@ -64,7 +64,7 @@ struct MoveResult: Codable {
 class GameClient {
     weak var delegate: GameClientDelegate?
     
-    private let baseURL = "http://192.168.1.140:3001"
+    private let baseURL = "https://minddigit-server.vercel.app"
     private var currentRoomCode: String?
     private var currentPlayer: RoomState.Player?
     private var sessionId: String

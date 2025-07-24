@@ -12,7 +12,7 @@ class OnlineWaitingViewController: UIViewController {
     
     // Network polling
     var statusTimer: Timer?
-    let baseURL = "http://192.168.1.140:3001/api"
+    let baseURL = "https://minddigit-server.vercel.app/api"
     
     // MARK: - UI Components
     private let backgroundView = UIView()
