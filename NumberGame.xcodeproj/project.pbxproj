@@ -11,6 +11,7 @@
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
+		8412231B2E32BA78002BBC41 /* NumberGame.xcodeproj */ = {isa = PBXFileReference; lastKnownFileType = "wrapper.pb-project"; path = NumberGame.xcodeproj; sourceTree = "<group>"; };
 		84C5250A2E30032D0011F5EA /* NumberGame.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = NumberGame.app; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
@@ -34,6 +35,13 @@
 /* End PBXFrameworksBuildPhase section */
 
 /* Begin PBXGroup section */
+		8412231C2E32BA78002BBC41 /* Products */ = {
+			isa = PBXGroup;
+			children = (
+			);
+			name = Products;
+			sourceTree = "<group>";
+		};
 		84C525012E30032D0011F5EA = {
 			isa = PBXGroup;
 			children = (
@@ -106,6 +114,12 @@
 			preferredProjectObjectVersion = 77;
 			productRefGroup = 84C5250B2E30032D0011F5EA /* Products */;
 			projectDirPath = "";
+			projectReferences = (
+				{
+					ProductGroup = 8412231C2E32BA78002BBC41 /* Products */;
+					ProjectRef = 8412231B2E32BA78002BBC41 /* NumberGame.xcodeproj */;
+				},
+			);
 			projectRoot = "";
 			targets = (
 				84C525092E30032D0011F5EA /* NumberGame */,
