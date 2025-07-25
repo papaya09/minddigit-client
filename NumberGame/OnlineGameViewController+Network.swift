@@ -276,7 +276,7 @@ extension OnlineGameViewController {
             self.updatePerformanceMetrics(responseTime: responseTime, endpoint: "quick-status")
             
             if let data = data,
-               let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+                  let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
                json["success"] as? Bool == true {
                 // Success - update cache and UI
                 self.trackNetworkSuccess()
@@ -323,7 +323,7 @@ extension OnlineGameViewController {
         sharedURLSession.dataTask(with: request) { [weak self] data, response, error in
             guard let self = self else { 
                 completion(false)
-                return 
+                return
             }
             
             if let data = data,
@@ -332,8 +332,8 @@ extension OnlineGameViewController {
                 
                 // Update cache
                 self.updateCacheFromStateResponse(json)
-                
-                DispatchQueue.main.async {
+            
+            DispatchQueue.main.async {
                     self.processGameState(json)
                 }
                 completion(true)
@@ -793,7 +793,7 @@ extension OnlineGameViewController {
             // Long game - manual refresh
             print("🎯 Auto-refreshing long game (\(gameLength) moves)")
             silentManualRefresh()
-        } else {
+                    } else {
             // Medium game - just continue trying
             print("🎯 Continuing with adaptive polling")
             retryCount = 0
@@ -983,8 +983,8 @@ extension OnlineGameViewController {
     private func appendNewHistoryEntries(newHistory: [[String: Any]]) {
         guard let historyContainer = self.historyContainer else {
             print("⚠️ History container not initialized")
-                return
-            }
+            return
+        }
         
         // Find new entries by comparing with what's already displayed
         let newEntries = findNewHistoryEntries(current: displayedHistoryEntries, new: newHistory)
@@ -1077,7 +1077,7 @@ extension OnlineGameViewController {
         fetchGameHistoryWithSilentRetry { [weak self] success in
             if success {
                 self?.trackNetworkSuccess()
-            } else {
+        } else {
                 self?.trackNetworkError()
             }
             completion?()
@@ -1087,9 +1087,9 @@ extension OnlineGameViewController {
     private func fetchGameHistoryWithSilentRetry(completion: @escaping (Bool) -> Void) {
         guard !roomId.isEmpty, !playerId.isEmpty else { 
             completion(false)
-            return 
-        }
-        
+                return
+            }
+            
         let urlString = "\(baseURL)/game/history-local?roomId=\(roomId)&playerId=\(playerId)"
         guard let url = URL(string: urlString) else { 
             completion(false)
@@ -1143,7 +1143,7 @@ extension OnlineGameViewController {
         if isWinner {
             print("🏆 You won! Showing winner UI")
             self.showWinnerUI(winnerName: winnerName)
-        } else {
+                } else {
             print("🎯 You lost! Showing practice mode UI")
             self.showPracticeUI(winnerName: winnerName)
         }
@@ -1327,12 +1327,12 @@ extension OnlineGameViewController {
         }
         
         sharedURLSession.dataTask(with: request) { [weak self] data, response, error in
-            DispatchQueue.main.async {
+        DispatchQueue.main.async {
                 if let error = error {
                     print("❌ Rematch request failed: \(error)")
-                    return
-                }
-                
+                return
+            }
+            
                 print("🔄 Rematch initiated")
                 self?.handleRematchStarted()
             }
@@ -1350,9 +1350,9 @@ extension OnlineGameViewController {
         // Reset game state
         displayedHistoryEntries = []
         if let historyContainer = historyContainer {
-            for subview in historyContainer.arrangedSubviews {
-                historyContainer.removeArrangedSubview(subview)
-                subview.removeFromSuperview()
+                for subview in historyContainer.arrangedSubviews {
+                    historyContainer.removeArrangedSubview(subview)
+                    subview.removeFromSuperview()
             }
         }
         
@@ -1496,7 +1496,7 @@ extension OnlineGameViewController {
         if (error as NSError).code == NSURLErrorTimedOut {
             print("⏰ Vercel timeout detected (likely cold start)")
             handleVercelColdStart(responseTime: responseTime)
-            } else {
+                } else {
             print("❌ Vercel network error:", error.localizedDescription)
         }
     }

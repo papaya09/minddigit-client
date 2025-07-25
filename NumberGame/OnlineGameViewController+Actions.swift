@@ -85,7 +85,15 @@ extension OnlineGameViewController {
     }
     
     @objc func submitGuess() {
+        // 🔒 SAFETY CHECKS: Ensure UI elements exist
+        guard let guessTextField = self.guessTextField,
+              let submitButton = self.submitButton else {
+            print("⚠️ UI elements not ready for guess submission")
+            return
+        }
+        
         guard isMyTurn else {
+            print("⚠️ Not player's turn")
             let alert = UIAlertController(title: "Not Your Turn", 
                                         message: "Please wait for your turn", 
                                         preferredStyle: .alert)
@@ -94,7 +102,18 @@ extension OnlineGameViewController {
             return
         }
         
-        guard let guess = guessTextField.text, !guess.isEmpty else { return }
+        guard let guess = guessTextField.text, !guess.isEmpty else {
+            print("⚠️ Empty guess text")
+            return
+        }
+        
+        // 🔒 VALIDATE GUESS FORMAT
+        guard guess.count == digits else {
+            print("⚠️ Invalid guess length: \(guess.count) != \(digits)")
+            return
+        }
+        
+        print("🎯 Submitting valid guess: '\(guess)'")
         
         // 🚀 OPTIMISTIC UPDATE: Update UI immediately for smooth experience
         performOptimisticGuessUpdate(guess: guess)
@@ -108,18 +127,25 @@ extension OnlineGameViewController {
     private func performOptimisticGuessUpdate(guess: String) {
         print("⚡ Optimistic update: guess '\(guess)'")
         
+        // 🔒 SAFETY: Ensure UI elements exist before updating
+        guard let submitButton = self.submitButton,
+              let guessTextField = self.guessTextField else {
+            print("⚠️ UI elements not available for optimistic update")
+            return
+        }
+        
         // 1. Immediate visual feedback
         submitButton.isEnabled = false
         submitButton.setTitle("🚀 SENDING...", for: .normal)
         
         // 2. Visual feedback with subtle animation
         UIView.animate(withDuration: 0.2, animations: {
-            self.guessTextField.alpha = 0.8
-            self.submitButton.transform = CGAffineTransform(scaleX: 0.95, y: 0.95)
+            guessTextField.alpha = 0.8
+            submitButton.transform = CGAffineTransform(scaleX: 0.95, y: 0.95)
         }) { _ in
             UIView.animate(withDuration: 0.2) {
-                self.guessTextField.alpha = 1.0
-                self.submitButton.transform = CGAffineTransform.identity
+                guessTextField.alpha = 1.0
+                submitButton.transform = CGAffineTransform.identity
             }
         }
         
@@ -209,9 +235,12 @@ extension OnlineGameViewController {
                             print("🎯 Server rejected: \(json["error"] as? String ?? "Unknown")")
                             self.handleGuessSubmissionSilently(success: false, guess: guess)
                         }
+                    } else {
+                        print("🎯 Invalid JSON format")
+                        self.handleGuessSubmissionSilently(success: false, guess: guess)
                     }
                 } catch {
-                    print("🎯 Parse error: \(error)")
+                    print("🎯 JSON parse error: \(error.localizedDescription)")
                     self.handleGuessSubmissionSilently(success: false, guess: guess)
                 }
             }
@@ -250,47 +279,59 @@ extension OnlineGameViewController {
         // Clear optimistic update (it was successful)
         pendingOptimisticUpdates.removeValue(forKey: "guess")
         
-        // Process result
-        if let result = json["result"] as? [String: Any],
-           let bulls = result["bulls"] as? Int,
-           let cows = result["cows"] as? Int,
-           let isCorrect = result["isCorrect"] as? Int {
+        // 🔒 SAFETY: Basic result processing with extensive safety checks
+        guard let result = json["result"] as? [String: Any] else {
+            print("⚠️ No result object in response")
+            backgroundSync()
+            return
+        }
+        
+        let bulls = result["bulls"] as? Int ?? 0
+        let cows = result["cows"] as? Int ?? 0
+        let isCorrect = result["isCorrect"] as? Int ?? 0
+        
+        // Show result on button
+        DispatchQueue.main.async {
+            self.submitButton.setTitle("✅ \(bulls)B \(cows)C", for: .normal)
+        }
+        
+        // 🎯 SIMPLIFIED WIN HANDLING
+        if isCorrect == 1 {
+            DispatchQueue.main.async {
+                self.submitButton.setTitle("🏆 CORRECT!", for: .normal)
+            }
             
-            // Show result on button
-            submitButton.setTitle("✅ \(bulls)B \(cows)C", for: .normal)
-            
-            // 🎯 CHECK FOR PRACTICE MODE COMPLETION
-            if isCorrect == 1 {
-                // Check if this is practice mode (game already has winner)
-                if let gameState = json["gameState"] as? String,
-                   gameState == "WINNER_ANNOUNCED",
-                   let winner = json["winner"] as? [String: Any],
+            // Check for practice mode safely
+            if let gameState = json["gameState"] as? String,
+               gameState == "WINNER_ANNOUNCED" {
+                
+                if let winner = json["winner"] as? [String: Any],
                    let winnerId = winner["playerId"] as? String,
                    winnerId != playerId {
-                    
-                    // Loser discovered the secret in practice mode!
-                    print("🎯 Practice complete! Discovered secret: \(guess)")
-                    submitButton.setTitle("🎯 SECRET FOUND!", for: .normal)
+                    // Practice mode completion
+                    print("🎯 Practice mode completion detected")
+                    DispatchQueue.main.async {
+                        self.submitButton.setTitle("🎯 SECRET FOUND!", for: .normal)
+                    }
                     handlePracticeCompletion(discoveredSecret: guess)
                     return
                 }
-                
-                // Normal win (first to solve)
-                submitButton.setTitle("🏆 YOU WON!", for: .normal)
-                // handleGameEndSilently will be called from network sync
             }
             
-            // Update turn with server data
-            if let newCurrentTurn = json["currentTurn"] as? String {
-                currentTurn = newCurrentTurn
-                isMyTurn = (currentTurn == playerId)
-            }
-            
-            // Reset button after delay
-            DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) {
-                self.resetSubmitButtonState()
-                self.updateTurnUI()
-            }
+            print("🏆 Normal victory detected")
+        }
+        
+        // 🔒 SAFE TURN UPDATE
+        if let newCurrentTurn = json["currentTurn"] as? String {
+            currentTurn = newCurrentTurn
+            isMyTurn = (currentTurn == playerId)
+            print("🔄 Turn updated to: \(newCurrentTurn)")
+        }
+        
+        // Reset button after delay
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) {
+            self.resetSubmitButtonState()
+            self.updateTurnUI()
         }
         
         // Always trigger background sync for latest data
@@ -298,6 +339,8 @@ extension OnlineGameViewController {
     }
     
     private func handlePracticeCompletion(discoveredSecret: String) {
+        print("🎯 Practice completion started for secret: \(discoveredSecret)")
+        
         // Notify server about practice completion
         let url = URL(string: "\(baseURL)/game/practice-complete-local")!
         var request = URLRequest(url: url)
@@ -331,22 +374,76 @@ extension OnlineGameViewController {
     }
     
     private func showPracticeCompletionUI() {
-        // Update practice panel to show "PLAY AGAIN" button
-        if let practicePanel = view.subviews.first(where: { $0.accessibilityIdentifier == "practice-panel" }),
-           let playAgainButton = practicePanel.subviews.first(where: { $0 is UIButton }) as? UIButton {
-            
-            playAgainButton.isHidden = false
-            
-            // Update subtitle
-            if let subtitleLabel = practicePanel.subviews.first(where: { $0 is UILabel && $0 != practicePanel.subviews.first }) as? UILabel {
-                subtitleLabel.text = "🎉 Secret discovered! Ready for rematch?"
+        // 🔒 SAFETY CHECK: Ensure we're on main thread and view exists
+        guard Thread.isMainThread else {
+            DispatchQueue.main.async {
+                self.showPracticeCompletionUI()
             }
+            return
+        }
+        
+        guard let view = self.view else {
+            print("⚠️ View not available for practice completion UI")
+            return
+        }
+        
+        // Update practice panel to show "PLAY AGAIN" button
+        if let practicePanel = view.subviews.first(where: { $0.accessibilityIdentifier == "practice-panel" }) {
+            print("🎯 Found practice panel, updating UI")
+            
+            // Find and show play again button
+            for subview in practicePanel.subviews {
+                if let button = subview as? UIButton {
+                    button.isHidden = false
+                    print("🎯 Enabled play again button")
+                    break
+                }
+            }
+            
+            // Update subtitle if found
+            let labels = practicePanel.subviews.compactMap { $0 as? UILabel }
+            if labels.count >= 2 {
+                labels[1].text = "🎉 Secret discovered! Ready for rematch?"
+                print("🎯 Updated subtitle text")
+            }
+        } else {
+            print("⚠️ Practice panel not found - creating simple completion message")
+            // Create simple completion message instead of trying to update non-existent panel
+            showSimpleCompletionMessage()
         }
         
         // Disable further guessing
         guessTextField.isEnabled = false
         submitButton.isEnabled = false
         updateKeypadButtonsState()
+    }
+    
+    private func showSimpleCompletionMessage() {
+        // Simple fallback UI for practice completion
+        let completionLabel = UILabel()
+        completionLabel.text = "🎉 Secret discovered!"
+        completionLabel.textAlignment = .center
+        completionLabel.backgroundColor = UIColor.systemGreen.withAlphaComponent(0.8)
+        completionLabel.textColor = .white
+        completionLabel.font = UIFont.boldSystemFont(ofSize: 16)
+        completionLabel.layer.cornerRadius = 8
+        completionLabel.clipsToBounds = true
+        completionLabel.accessibilityIdentifier = "simple-completion"
+        
+        view.addSubview(completionLabel)
+        completionLabel.translatesAutoresizingMaskIntoConstraints = false
+        
+        NSLayoutConstraint.activate([
+            completionLabel.centerXAnchor.constraint(equalTo: view.centerXAnchor),
+            completionLabel.topAnchor.constraint(equalTo: guessTextField.bottomAnchor, constant: 20),
+            completionLabel.widthAnchor.constraint(equalToConstant: 200),
+            completionLabel.heightAnchor.constraint(equalToConstant: 40)
+        ])
+        
+        // Auto-hide after 3 seconds
+        DispatchQueue.main.asyncAfter(deadline: .now() + 3.0) {
+            completionLabel.removeFromSuperview()
+        }
     }
     
     private func rollbackOptimisticUpdate(type: String) {
