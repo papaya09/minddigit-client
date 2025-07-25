@@ -969,55 +969,6 @@ extension OnlineGameViewController {
     
     // MARK: - History Management
     
-    // 🎯 APPEND-ONLY HISTORY UPDATE - No more flickering!
-    func fetchGameHistoryForAppend(completion: @escaping () -> Void) {
-        guard !roomId.isEmpty, !playerId.isEmpty else { 
-            completion()
-            return 
-        }
-        
-        let urlString = "\(baseURL)/game/history-local?roomId=\(roomId)&playerId=\(playerId)"
-        guard let url = URL(string: urlString) else { 
-            completion()
-            return 
-        }
-        
-        let requestStartTime = Date.timeIntervalSinceReferenceDate
-        
-        sharedURLSession.dataTask(with: url) { [weak self] data, response, error in
-            let responseTime = (Date.timeIntervalSinceReferenceDate - requestStartTime) * 1000
-            
-            guard let self = self else { 
-                completion()
-                return 
-            }
-            
-            // Update performance metrics
-            self.updatePerformanceMetrics(responseTime: responseTime, endpoint: "history-append")
-            
-            if let data = data,
-                  let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-                  let success = json["success"] as? Bool, success,
-               let newHistory = json["history"] as? [[String: Any]] {
-                
-                DispatchQueue.main.async {
-                    self.appendNewHistoryEntries(newHistory: newHistory)
-                    
-                    // Silent win/lose handling (no disruptive dialogs)
-                    if let winner = json["winner"] as? [String: Any],
-                       let winnerPlayerId = winner["playerId"] as? String {
-                        self.handleGameEndSilently(winnerId: winnerPlayerId, winnerName: winner["playerName"] as? String)
-                    }
-                    
-                    completion()
-                }
-            } else {
-                print("🎯 History append fetch failed silently")
-                completion()
-            }
-        }.resume()
-    }
-    
     // 🎯 SMART APPEND: Only add new entries, keep existing ones
     private func appendNewHistoryEntries(newHistory: [[String: Any]]) {
         guard let historyContainer = self.historyContainer else {
@@ -1405,8 +1356,12 @@ extension OnlineGameViewController {
                 return
             }
             
-            // Always rebuild for reliability (optimize later if needed)
-            self.rebuildHistoryView(with: history, container: historyContainer)
+            // 🎯 SMART LOADING: Initial load for first time, append for updates
+            if self.displayedHistoryEntries.isEmpty {
+                self.initialHistoryLoad(history: history)
+            } else {
+                self.appendNewHistoryEntries(newHistory: history)
+            }
         }
     }
     
@@ -1426,29 +1381,44 @@ extension OnlineGameViewController {
         return signature.hashValue
     }
     
-    private func rebuildHistoryView(with history: [[String: Any]], container: UIStackView) {
-                // Remove existing views safely
-        for subview in container.arrangedSubviews {
-            container.removeArrangedSubview(subview)
-                    subview.removeFromSuperview()
-                }
-                
-                if history.isEmpty {
-                    // 🎯 NO PLACEHOLDER - Keep clean empty container
-                    print("📜 No history yet - keeping container empty")
-                } else {
-            // Add new entries in order
-            for (index, entry) in history.enumerated() {
-                        self.addHistoryEntry(entry)
-                print("📜 Added history entry \(index + 1): \(entry["guess"] as? String ?? "?") by \(entry["playerName"] as? String ?? "?")")
-            }
+    // 🎯 REBUILD HISTORY REMOVED - Causes flickering! 
+    // Now using append-only approach for static display
+    
+    // 🎯 INITIAL HISTORY LOAD - For first time setup only
+    private func initialHistoryLoad(history: [[String: Any]]) {
+        guard let historyContainer = self.historyContainer else {
+            print("⚠️ History container not initialized")
+            return
         }
         
-        print("📜 History view rebuilt with \(history.count) entries")
+        // Only load if container is truly empty and we have no displayed entries
+        guard displayedHistoryEntries.isEmpty && historyContainer.arrangedSubviews.isEmpty else {
+            print("📜 History already loaded, using append-only")
+            appendNewHistoryEntries(newHistory: history)
+            return
+        }
         
-        // Auto-scroll to bottom to show latest moves
+        print("📜 Initial history load: \(history.count) entries")
+        
+        // Directly add entries without removing anything (container is empty)
+        for (index, entry) in history.enumerated() {
+            let historyItemView = createHistoryItemView(
+                playerName: entry["playerName"] as? String ?? "?",
+                guess: entry["guess"] as? String ?? "?",
+                bulls: entry["bulls"] as? Int ?? 0,
+                cows: entry["cows"] as? Int ?? 0
+            )
+            
+            historyContainer.addArrangedSubview(historyItemView)
+            print("📜 Initial load: \(entry["guess"] as? String ?? "?") by \(entry["playerName"] as? String ?? "?")")
+        }
+        
+        // Update tracking
+        displayedHistoryEntries = history
+        
+        // Auto-scroll to show latest
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
-            if let scrollView = container.superview as? UIScrollView {
+            if let scrollView = historyContainer.superview as? UIScrollView {
                 let bottomOffset = CGPoint(x: 0, y: max(0, scrollView.contentSize.height - scrollView.bounds.height))
                 scrollView.setContentOffset(bottomOffset, animated: true)
             }
@@ -1811,5 +1781,106 @@ extension OnlineGameViewController {
         
         adaptivePollingConfig["currentInterval"] = newInterval
         print("🎯 Optimized polling frequency: \(newInterval)s (success: \(successRate), errors: \(consecutiveErrors), length: \(gameLength))")
+    }
+    
+    // 🎯 INCREMENTAL HISTORY - Only fetch new entries!
+    func fetchIncrementalHistory(completion: @escaping () -> Void) {
+        guard !roomId.isEmpty, !playerId.isEmpty else { 
+            completion()
+            return 
+        }
+        
+        let lastIndex = displayedHistoryEntries.count - 1
+        let urlString = "\(baseURL)/game/history-incremental?roomId=\(roomId)&playerId=\(playerId)&lastEntryIndex=\(lastIndex)"
+        guard let url = URL(string: urlString) else { 
+            completion()
+            return 
+        }
+        
+        let requestStartTime = Date.timeIntervalSinceReferenceDate
+        
+        sharedURLSession.dataTask(with: url) { [weak self] data, response, error in
+            let responseTime = (Date.timeIntervalSinceReferenceDate - requestStartTime) * 1000
+            
+            guard let self = self else { 
+                completion()
+                return 
+            }
+            
+            // Update performance metrics
+            self.updatePerformanceMetrics(responseTime: responseTime, endpoint: "history-incremental")
+            
+            if let data = data,
+               let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+               let success = json["success"] as? Bool, success,
+               let hasNewData = json["hasNewData"] as? Bool {
+                
+                if hasNewData, let newEntries = json["newEntries"] as? [[String: Any]], !newEntries.isEmpty {
+                    DispatchQueue.main.async {
+                        print("📜 Incremental: Adding \(newEntries.count) new entries")
+                        self.appendOnlyNewEntries(newEntries: newEntries)
+                        
+                        // Silent win/lose handling
+                        if let winner = json["winner"] as? [String: Any],
+                           let winnerPlayerId = winner["playerId"] as? String {
+                            self.handleGameEndSilently(winnerId: winnerPlayerId, winnerName: winner["playerName"] as? String)
+                        }
+                        
+                        completion()
+                    }
+                } else {
+                    print("📜 Incremental: No new entries")
+                    completion()
+                }
+            } else {
+                print("🎯 Incremental history fetch failed silently")
+                completion()
+            }
+        }.resume()
+    }
+    
+    // 🎯 PURE APPEND - No comparison, just add new entries
+    private func appendOnlyNewEntries(newEntries: [[String: Any]]) {
+        guard let historyContainer = self.historyContainer else {
+            print("⚠️ History container not initialized")
+            return
+        }
+        
+        print("📜 Appending \(newEntries.count) new entries (pure append)")
+        
+        // Directly append with smooth animation
+        for (index, entry) in newEntries.enumerated() {
+            DispatchQueue.main.asyncAfter(deadline: .now() + Double(index) * 0.1) {
+                let historyItemView = self.createHistoryItemView(
+                    playerName: entry["playerName"] as? String ?? "?",
+                    guess: entry["guess"] as? String ?? "?",
+                    bulls: entry["bulls"] as? Int ?? 0,
+                    cows: entry["cows"] as? Int ?? 0
+                )
+                
+                // Smooth fade-in animation
+                historyItemView.alpha = 0.0
+                historyItemView.transform = CGAffineTransform(translationX: 0, y: 20)
+                historyContainer.addArrangedSubview(historyItemView)
+                
+                UIView.animate(withDuration: 0.3, delay: 0, options: .curveEaseOut) {
+                    historyItemView.alpha = 1.0
+                    historyItemView.transform = CGAffineTransform.identity
+                }
+                
+                print("📜 Pure append: \(entry["guess"] as? String ?? "?") by \(entry["playerName"] as? String ?? "?")")
+            }
+        }
+        
+        // Update tracking
+        displayedHistoryEntries.append(contentsOf: newEntries)
+        
+        // Auto-scroll to show new entries
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+            if let scrollView = historyContainer.superview as? UIScrollView {
+                let bottomOffset = CGPoint(x: 0, y: max(0, scrollView.contentSize.height - scrollView.bounds.height))
+                scrollView.setContentOffset(bottomOffset, animated: true)
+            }
+        }
     }
 }

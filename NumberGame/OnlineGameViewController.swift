@@ -1189,7 +1189,7 @@ class OnlineGameViewController: UIViewController {
         historyRefreshButton.isEnabled = false
         
         // Fetch new history and append only new entries
-        fetchGameHistoryForAppend { [weak self] in
+        fetchIncrementalHistory { [weak self] in
             DispatchQueue.main.async {
                 self?.historyRefreshButton.setTitle("🔄 REFRESH", for: .normal)
                 self?.historyRefreshButton.isEnabled = true
