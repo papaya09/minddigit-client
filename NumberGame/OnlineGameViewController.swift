@@ -283,7 +283,7 @@ class OnlineGameViewController: UIViewController {
         ])
     }
     
-    @objc private func manualRefresh() {
+    @objc func manualRefresh() {
         print("🔄 Manual refresh triggered")
         
         // Visual feedback
