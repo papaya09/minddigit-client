@@ -52,10 +52,12 @@ class OnlineGameViewController: UIViewController {
     
     // Control buttons
     let loadingSpinner = UIActivityIndicatorView(style: .large)
+    private let refreshButton = UIButton(type: .system)
     
     override func viewDidLoad() {
         super.viewDidLoad()
         setupUI()
+        setupRefreshButton()
         
         // Setup history after UI is complete with longer delay
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
@@ -250,7 +252,6 @@ class OnlineGameViewController: UIViewController {
     }
     
     private func setupRefreshButton() {
-        let refreshButton = UIButton(type: .system)
         refreshButton.setTitle("🔄", for: .normal)
         refreshButton.backgroundColor = UIColor.systemBlue.withAlphaComponent(0.8)
         refreshButton.setTitleColor(.white, for: .normal)
@@ -288,9 +289,10 @@ class OnlineGameViewController: UIViewController {
             refreshButton?.transform = CGAffineTransform.identity
         }
         
-        // Immediate sync
-        fetchGameState()
-        fetchGameHistory()
+        // Immediate comprehensive sync
+        syncGameStateImmediately {
+            print("✅ Manual refresh completed")
+        }
         
         // Haptic feedback
         let impactFeedback = UIImpactFeedbackGenerator(style: .medium)

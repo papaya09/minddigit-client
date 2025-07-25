@@ -201,10 +201,9 @@ extension OnlineGameViewController {
                                 }
                             }
                             
-                            // Immediate history and state sync for real-time feel
-                            DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
-                                self.fetchGameHistory() // Get updated history immediately
-                                self.fetchGameState()   // Sync game state
+                            // Start aggressive polling for immediate updates
+                            DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
+                                self.startAggressivePolling()
                             }
                         }
                     } else {

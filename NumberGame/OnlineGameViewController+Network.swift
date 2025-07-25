@@ -3,26 +3,110 @@ import UIKit
 // MARK: - Network Methods
 extension OnlineGameViewController {
     
-    // MARK: - Enhanced Network Layer with Recovery
+    // MARK: - Enhanced Network Layer with Smart Polling
+    
+    // Aggressive polling mode for real-time responsiveness
+    private var aggressivePollingTimer: Timer?
+    private var aggressivePollingCount = 0
+    private let maxAggressivePolls = 5 // Poll 5 times aggressively, then return to normal
     
     func startGamePolling() {
         retryCount = 0
         isRecovering = false
-        gameTimer = Timer.scheduledTimer(withTimeInterval: 2.0, repeats: true) { [weak self] _ in
-            self?.fetchGameStateWithRetry()
-        }
+        scheduleSmartPolling()
         
         // Immediate fetch
         fetchGameStateWithRetry()
-        print("🔄 Started game polling with enhanced recovery")
+        print("🔄 Started smart game polling with enhanced recovery")
+    }
+    
+    private func scheduleSmartPolling() {
+        gameTimer?.invalidate()
+        
+        // Smart polling: Fast when waiting for opponent, slower when it's your turn
+        let interval: TimeInterval = isMyTurn ? 3.0 : 1.0  // Faster when waiting for opponent
+        
+        gameTimer = Timer.scheduledTimer(withTimeInterval: interval, repeats: true) { [weak self] _ in
+            self?.fetchGameStateWithRetry()
+        }
+        
+        print("⏱️ Scheduled polling with interval: \(interval)s (isMyTurn: \(isMyTurn))")
+    }
+    
+    // Start aggressive polling after player actions
+    func startAggressivePolling() {
+        print("🚀 Starting aggressive polling for real-time sync")
+        aggressivePollingTimer?.invalidate()
+        aggressivePollingCount = 0
+        
+        // Show visual feedback that we're syncing aggressively
+        DispatchQueue.main.async { [weak self] in
+            self?.turnLabel?.text = "🔄 Syncing..."
+        }
+        
+        aggressivePollingTimer = Timer.scheduledTimer(withTimeInterval: 0.5, repeats: true) { [weak self] timer in
+            guard let self = self else {
+                timer.invalidate()
+                return
+            }
+            
+            self.aggressivePollingCount += 1
+            print("⚡ Aggressive poll #\(self.aggressivePollingCount)")
+            
+            self.fetchGameStateWithRetry()
+            
+            // Stop aggressive polling after max attempts
+            if self.aggressivePollingCount >= self.maxAggressivePolls {
+                print("✅ Aggressive polling completed, returning to smart polling")
+                timer.invalidate()
+                self.aggressivePollingTimer = nil
+                self.scheduleSmartPolling() // Resume normal polling
+                
+                // Update UI to reflect normal state
+                DispatchQueue.main.async { [weak self] in
+                    self?.updateTurnUI()
+                }
+            }
+        }
+    }
+    
+    // MARK: - Immediate Sync Methods
+    
+    func syncGameStateImmediately(completion: (() -> Void)? = nil) {
+        print("🚀 Immediate game state sync triggered")
+        
+        // Cancel current timer and fetch immediately
+        gameTimer?.invalidate()
+        
+        // Fetch both state and history in parallel for complete sync
+        let group = DispatchGroup()
+        
+        group.enter()
+        fetchGameState { [weak self] in
+            self?.scheduleSmartPolling() // Restart smart polling
+            group.leave()
+        }
+        
+        group.enter()
+        fetchGameHistory {
+            group.leave()
+        }
+        
+        group.notify(queue: .main) {
+            completion?()
+            print("✅ Immediate sync completed")
+        }
     }
     
     func stopGamePolling() {
         gameTimer?.invalidate()
         gameTimer = nil
+        aggressivePollingTimer?.invalidate()
+        aggressivePollingTimer = nil
         retryCount = 0
         isRecovering = false
-        print("⏹️ Stopped game polling and reset recovery state")
+        aggressivePollingCount = 0
+        print("⏹️ Stopped all polling and reset recovery state")
     }
     
     private func fetchGameStateWithRetry() {
@@ -93,7 +177,7 @@ extension OnlineGameViewController {
         }
     }
     
-    func fetchGameState(completion: ((Bool) -> Void)? = nil) {
+    func fetchGameState(completion: (() -> Void)? = nil) {
         let url = "\(baseURL)/room/status-local"
         let parameters = [
             "roomId": roomId,
@@ -110,26 +194,24 @@ extension OnlineGameViewController {
         request.timeoutInterval = 10.0 // Shorter timeout for better responsiveness
         
         URLSession.shared.dataTask(with: request) { [weak self] data, response, error in
+            defer { completion?() }
+            
             guard let self = self else { 
-                completion?(false)
                 return 
             }
             
             if let error = error {
                 print("❌ Network error:", error.localizedDescription)
-                completion?(false)
                 return
             }
             
             guard let httpResponse = response as? HTTPURLResponse else {
                 print("❌ Invalid response type")
-                completion?(false)
                 return
             }
             
             guard let data = data else {
                 print("❌ No data received")
-                completion?(false)
                 return
             }
             
@@ -138,7 +220,6 @@ extension OnlineGameViewController {
                 if let errorString = String(data: data, encoding: .utf8) {
                     print("Error response:", errorString)
                 }
-                completion?(false)
                 return
             }
             
@@ -152,7 +233,6 @@ extension OnlineGameViewController {
                     // Validate response has required fields
                     if json["success"] as? Bool == true {
                         self.processGameState(json)
-                        completion?(true)
                     } else {
                         print("⚠️ Server reported error:", json["error"] as? String ?? "Unknown")
                         
@@ -161,29 +241,32 @@ extension OnlineGameViewController {
                             print("🔄 Server indicated recovery mode")
                             // Still process the response for state recovery
                             self.processGameState(json)
-                            completion?(true)
-                        } else {
-                            completion?(false)
                         }
                     }
                 } else {
                     print("❌ Invalid JSON format")
-                    completion?(false)
                 }
             } catch {
                 print("❌ JSON parsing error:", error)
-                completion?(false)
             }
         }.resume()
     }
     
-    func fetchGameHistory() {
-        guard !roomId.isEmpty, !playerId.isEmpty else { return }
+    func fetchGameHistory(completion: (() -> Void)? = nil) {
+        guard !roomId.isEmpty, !playerId.isEmpty else { 
+            completion?()
+            return 
+        }
         
         let urlString = "\(baseURL)/game/history-local?roomId=\(roomId)&playerId=\(playerId)"
-        guard let url = URL(string: urlString) else { return }
+        guard let url = URL(string: urlString) else { 
+            completion?()
+            return 
+        }
         
         URLSession.shared.dataTask(with: url) { [weak self] data, response, error in
+            defer { completion?() }
+            
             guard let data = data,
                   let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
                   let success = json["success"] as? Bool, success,
@@ -356,6 +439,8 @@ extension OnlineGameViewController {
                 
                 if shouldUpdateTurn {
                     self.updateTurnUI()
+                    // Reschedule polling with new turn-aware interval
+                    self.scheduleSmartPolling()
                 }
                 
                 // Update keypad state
