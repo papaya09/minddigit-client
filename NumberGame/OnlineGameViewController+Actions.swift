@@ -250,13 +250,35 @@ extension OnlineGameViewController {
         // Clear optimistic update (it was successful)
         pendingOptimisticUpdates.removeValue(forKey: "guess")
         
-        // Process actual server result
+        // Process result
         if let result = json["result"] as? [String: Any],
            let bulls = result["bulls"] as? Int,
-           let cows = result["cows"] as? Int {
+           let cows = result["cows"] as? Int,
+           let isCorrect = result["isCorrect"] as? Int {
             
-            // Show actual result
+            // Show result on button
             submitButton.setTitle("✅ \(bulls)B \(cows)C", for: .normal)
+            
+            // 🎯 CHECK FOR PRACTICE MODE COMPLETION
+            if isCorrect == 1 {
+                // Check if this is practice mode (game already has winner)
+                if let gameState = json["gameState"] as? String,
+                   gameState == "WINNER_ANNOUNCED",
+                   let winner = json["winner"] as? [String: Any],
+                   let winnerId = winner["playerId"] as? String,
+                   winnerId != playerId {
+                    
+                    // Loser discovered the secret in practice mode!
+                    print("🎯 Practice complete! Discovered secret: \(guess)")
+                    submitButton.setTitle("🎯 SECRET FOUND!", for: .normal)
+                    handlePracticeCompletion(discoveredSecret: guess)
+                    return
+                }
+                
+                // Normal win (first to solve)
+                submitButton.setTitle("🏆 YOU WON!", for: .normal)
+                // handleGameEndSilently will be called from network sync
+            }
             
             // Update turn with server data
             if let newCurrentTurn = json["currentTurn"] as? String {
@@ -264,32 +286,67 @@ extension OnlineGameViewController {
                 isMyTurn = (currentTurn == playerId)
             }
             
-            // Check for win condition
-            if let isCorrect = result["isCorrect"] as? Int, isCorrect == 1 {
-                submitButton.setTitle("🏆 YOU WON!", for: .normal)
-                DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
-                    self.showGameOverAlert(won: true)
-                }
-            } else if bulls == digits {
-                submitButton.setTitle("🏆 YOU WON!", for: .normal)
-                DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
-                    self.showGameOverAlert(won: true)
-                }
-            } else {
-                // Update UI for next turn
-                DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) {
-                    self.resetSubmitButtonState()
-                    self.updateTurnUI()
-                }
+            // Reset button after delay
+            DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) {
+                self.resetSubmitButtonState()
+                self.updateTurnUI()
             }
-            
-            // Trigger immediate background sync for latest data
-            backgroundSync()
-            
-        } else {
-            print("❌ Invalid result format from server")
-            rollbackOptimisticUpdate(type: "guess")
         }
+        
+        // Always trigger background sync for latest data
+        backgroundSync()
+    }
+    
+    private func handlePracticeCompletion(discoveredSecret: String) {
+        // Notify server about practice completion
+        let url = URL(string: "\(baseURL)/game/practice-complete-local")!
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        
+        let body = [
+            "roomId": roomId,
+            "playerId": playerId,
+            "discoveredSecret": discoveredSecret
+        ]
+        
+        do {
+            request.httpBody = try JSONSerialization.data(withJSONObject: body)
+        } catch {
+            print("❌ Error creating practice completion request: \(error)")
+            return
+        }
+        
+        sharedURLSession.dataTask(with: request) { [weak self] data, response, error in
+            DispatchQueue.main.async {
+                if let error = error {
+                    print("❌ Practice completion failed: \(error)")
+                    return
+                }
+                
+                print("🎯 Practice completion confirmed")
+                self?.showPracticeCompletionUI()
+            }
+        }.resume()
+    }
+    
+    private func showPracticeCompletionUI() {
+        // Update practice panel to show "PLAY AGAIN" button
+        if let practicePanel = view.subviews.first(where: { $0.accessibilityIdentifier == "practice-panel" }),
+           let playAgainButton = practicePanel.subviews.first(where: { $0 is UIButton }) as? UIButton {
+            
+            playAgainButton.isHidden = false
+            
+            // Update subtitle
+            if let subtitleLabel = practicePanel.subviews.first(where: { $0 is UILabel && $0 != practicePanel.subviews.first }) as? UILabel {
+                subtitleLabel.text = "🎉 Secret discovered! Ready for rematch?"
+            }
+        }
+        
+        // Disable further guessing
+        guessTextField.isEnabled = false
+        submitButton.isEnabled = false
+        updateKeypadButtonsState()
     }
     
     private func rollbackOptimisticUpdate(type: String) {

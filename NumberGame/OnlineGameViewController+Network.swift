@@ -103,9 +103,17 @@ extension OnlineGameViewController {
     }
     
     private func displayCachedDataIfAvailable() {
+        // 🎯 Display cached history if available
         if !cachedGameHistory.isEmpty {
-            DispatchQueue.main.async { [weak self] in
-                self?.updateGameHistoryFromCache()
+            print("📜 Displaying cached history: \(cachedGameHistory.count) entries")
+            // Simple signature for cache checking
+            let historySignature = cachedGameHistory.count
+            
+            if historySignature != currentHistorySignature {
+                currentHistorySignature = historySignature
+                DispatchQueue.main.async {
+                    self.appendNewHistoryEntries(newHistory: self.cachedGameHistory)
+                }
             }
         }
     }
@@ -1127,305 +1135,235 @@ extension OnlineGameViewController {
     }
     
     private func handleGameEndSilently(winnerId: String, winnerName: String?) {
-        // Subtle game end handling without disruptive dialogs
-        if winnerId == self.playerId {
-            print("🎉 Game won silently")
-            // Could add subtle celebration animation here
-        } else {
-            print("😔 Game lost silently")
-            // Could add subtle feedback here
-        }
+        // 🎯 POST-GAME UI SYSTEM - No more popups!
+        let isWinner = winnerId == self.playerId
         
-        // Show subtle notification instead of modal dialog
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
-            self.showSubtleGameEndNotification(winnerId: winnerId, winnerName: winnerName)
+        if isWinner {
+            print("🏆 You won! Showing winner UI")
+            self.showWinnerUI(winnerName: winnerName)
+        } else {
+            print("🎯 You lost! Showing practice mode UI")
+            self.showPracticeUI(winnerName: winnerName)
         }
     }
     
-    private func showSubtleGameEndNotification(winnerId: String, winnerName: String?) {
-        let isWin = winnerId == self.playerId
-        let message = isWin ? "🎉 You won!" : "😔 \(winnerName ?? "Opponent") won"
+    private func showWinnerUI(winnerName: String?) {
+        DispatchQueue.main.async {
+            // 🏆 WINNER UI: Add rematch waiting button
+            self.addWinnerControlPanel()
+        }
+    }
+    
+    private func showPracticeUI(winnerName: String?) {
+        DispatchQueue.main.async {
+            // 🎯 PRACTICE UI: Allow continued guessing
+            self.addPracticeControlPanel(winnerName: winnerName)
+        }
+    }
+    
+    private func addWinnerControlPanel() {
+        // Remove existing game end UI if any
+        removeGameEndUI()
         
-        // Show as a temporary label instead of modal dialog
-        let notificationLabel = UILabel()
-        notificationLabel.text = message
-        notificationLabel.textAlignment = .center
-        notificationLabel.backgroundColor = isWin ? UIColor.systemGreen.withAlphaComponent(0.9) : UIColor.systemOrange.withAlphaComponent(0.9)
-        notificationLabel.textColor = .white
-        notificationLabel.font = UIFont.boldSystemFont(ofSize: 18)
-        notificationLabel.layer.cornerRadius = 10
-        notificationLabel.clipsToBounds = true
+        let winnerPanel = UIView()
+        winnerPanel.backgroundColor = UIColor(red: 0.0, green: 0.6, blue: 0.0, alpha: 0.9)
+        winnerPanel.layer.cornerRadius = 15
+        winnerPanel.layer.borderWidth = 2
+        winnerPanel.layer.borderColor = UIColor.systemGreen.cgColor
+        winnerPanel.accessibilityIdentifier = "winner-panel"
         
-        view.addSubview(notificationLabel)
-        notificationLabel.translatesAutoresizingMaskIntoConstraints = false
+        let titleLabel = UILabel()
+        titleLabel.text = "🏆 VICTORY!"
+        titleLabel.font = UIFont.boldSystemFont(ofSize: 20)
+        titleLabel.textColor = .white
+        titleLabel.textAlignment = .center
+        
+        let subtitleLabel = UILabel()
+        subtitleLabel.text = "Waiting for opponent to finish practice..."
+        subtitleLabel.font = UIFont.systemFont(ofSize: 14)
+        subtitleLabel.textColor = .white.withAlphaComponent(0.8)
+        subtitleLabel.textAlignment = .center
+        subtitleLabel.numberOfLines = 2
+        
+        let rematchButton = UIButton(type: .system)
+        rematchButton.setTitle("🔄 START REMATCH", for: .normal)
+        rematchButton.setTitleColor(.white, for: .normal)
+        rematchButton.titleLabel?.font = UIFont.boldSystemFont(ofSize: 16)
+        rematchButton.backgroundColor = UIColor.systemBlue
+        rematchButton.layer.cornerRadius = 10
+        rematchButton.addTarget(self, action: #selector(startRematch), for: .touchUpInside)
+        
+        winnerPanel.addSubview(titleLabel)
+        winnerPanel.addSubview(subtitleLabel)
+        winnerPanel.addSubview(rematchButton)
+        view.addSubview(winnerPanel)
+        
+        // Set up constraints
+        [winnerPanel, titleLabel, subtitleLabel, rematchButton].forEach { $0.translatesAutoresizingMaskIntoConstraints = false }
+        
         NSLayoutConstraint.activate([
-            notificationLabel.centerXAnchor.constraint(equalTo: view.centerXAnchor),
-            notificationLabel.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor, constant: 20),
-            notificationLabel.heightAnchor.constraint(equalToConstant: 50),
-            notificationLabel.widthAnchor.constraint(equalToConstant: 200)
+            winnerPanel.centerXAnchor.constraint(equalTo: view.centerXAnchor),
+            winnerPanel.topAnchor.constraint(equalTo: guessTextField.bottomAnchor, constant: 20),
+            winnerPanel.widthAnchor.constraint(equalToConstant: 280),
+            winnerPanel.heightAnchor.constraint(equalToConstant: 120),
+            
+            titleLabel.topAnchor.constraint(equalTo: winnerPanel.topAnchor, constant: 10),
+            titleLabel.leadingAnchor.constraint(equalTo: winnerPanel.leadingAnchor, constant: 10),
+            titleLabel.trailingAnchor.constraint(equalTo: winnerPanel.trailingAnchor, constant: -10),
+            
+            subtitleLabel.topAnchor.constraint(equalTo: titleLabel.bottomAnchor, constant: 5),
+            subtitleLabel.leadingAnchor.constraint(equalTo: winnerPanel.leadingAnchor, constant: 10),
+            subtitleLabel.trailingAnchor.constraint(equalTo: winnerPanel.trailingAnchor, constant: -10),
+            
+            rematchButton.topAnchor.constraint(equalTo: subtitleLabel.bottomAnchor, constant: 10),
+            rematchButton.centerXAnchor.constraint(equalTo: winnerPanel.centerXAnchor),
+            rematchButton.widthAnchor.constraint(equalToConstant: 200),
+            rematchButton.heightAnchor.constraint(equalToConstant: 35)
         ])
         
-        // Animate in and out
-        notificationLabel.alpha = 0
-        UIView.animate(withDuration: 0.3, animations: {
-            notificationLabel.alpha = 1
-        }) { _ in
-            UIView.animate(withDuration: 0.3, delay: 3.0, animations: {
-                notificationLabel.alpha = 0
-            }) { _ in
-                notificationLabel.removeFromSuperview()
-            }
-        }
+        // Disable guess input for winner
+        guessTextField.isEnabled = false
+        submitButton.isEnabled = false
+        updateKeypadButtonsState()
     }
     
-    private func processGameState(_ json: [String: Any]) {
-        // Process room data from status-local endpoint with enhanced error handling
-        guard let room = json["room"] as? [String: Any] else {
-            print("❌ No room data in response")
-            return
-        }
+    private func addPracticeControlPanel(winnerName: String?) {
+        // Remove existing game end UI if any
+        removeGameEndUI()
         
-        // Check for server-side validation issues
-        if let validation = json["validation"] as? [String: Any],
-           let isValid = validation["valid"] as? Bool, !isValid {
-            let reason = validation["reason"] as? String ?? "Unknown validation error"
-            print("⚠️ Server validation failed: \(reason)")
+        let practicePanel = UIView()
+        practicePanel.backgroundColor = UIColor(red: 0.6, green: 0.4, blue: 0.0, alpha: 0.9)
+        practicePanel.layer.cornerRadius = 15
+        practicePanel.layer.borderWidth = 2
+        practicePanel.layer.borderColor = UIColor.systemOrange.cgColor
+        practicePanel.accessibilityIdentifier = "practice-panel"
+        
+        let titleLabel = UILabel()
+        titleLabel.text = "🎯 PRACTICE MODE"
+        titleLabel.font = UIFont.boldSystemFont(ofSize: 18)
+        titleLabel.textColor = .white
+        titleLabel.textAlignment = .center
+        
+        let subtitleLabel = UILabel()
+        subtitleLabel.text = "Continue guessing to find the secret!"
+        subtitleLabel.font = UIFont.systemFont(ofSize: 14)
+        subtitleLabel.textColor = .white.withAlphaComponent(0.8)
+        subtitleLabel.textAlignment = .center
+        subtitleLabel.numberOfLines = 2
+        
+        let playAgainButton = UIButton(type: .system)
+        playAgainButton.setTitle("🔄 PLAY AGAIN", for: .normal)
+        playAgainButton.setTitleColor(.white, for: .normal)
+        playAgainButton.titleLabel?.font = UIFont.boldSystemFont(ofSize: 16)
+        playAgainButton.backgroundColor = UIColor.systemBlue
+        playAgainButton.layer.cornerRadius = 10
+        playAgainButton.addTarget(self, action: #selector(requestRematch), for: .touchUpInside)
+        playAgainButton.isHidden = true // Show only after discovering secret
+        
+        practicePanel.addSubview(titleLabel)
+        practicePanel.addSubview(subtitleLabel)
+        practicePanel.addSubview(playAgainButton)
+        view.addSubview(practicePanel)
+        
+        // Set up constraints
+        [practicePanel, titleLabel, subtitleLabel, playAgainButton].forEach { $0.translatesAutoresizingMaskIntoConstraints = false }
+        
+        NSLayoutConstraint.activate([
+            practicePanel.centerXAnchor.constraint(equalTo: view.centerXAnchor),
+            practicePanel.topAnchor.constraint(equalTo: guessTextField.bottomAnchor, constant: 20),
+            practicePanel.widthAnchor.constraint(equalToConstant: 280),
+            practicePanel.heightAnchor.constraint(equalToConstant: 120),
             
-            // Show validation error to user but continue processing for recovery
-            DispatchQueue.main.async { [weak self] in
-                self?.showValidationError(reason)
-            }
-        }
-        
-        // Check for recovery suggestions
-        if let suggestion = json["suggestion"] as? String {
-            print("💡 Server suggestion: \(suggestion)")
-        }
-        
-        // Check for next action guidance
-        if let nextAction = json["nextAction"] as? String {
-            print("➡️ Next action: \(nextAction)")
-        }
-        
-        // Collect data without UI access first
-        var shouldUpdateUI = false
-        var shouldUpdateTurn = false
-        var secretText = ""
-        
-        // Update game state with validation
-        if let serverGameState = room["gameState"] as? String {
-            if serverGameState != gameState {
-                let oldState = gameState
-                gameState = serverGameState
-                shouldUpdateUI = true
-                print("🎮 Game state changed: \(oldState) → \(serverGameState)")
-                
-                // Add state-specific feedback
-                switch serverGameState {
-                case "PLAYING":
-                    print("🎯 Game is now active - ready for guesses!")
-                case "WAITING":
-                    print("⏳ Waiting for players to join")
-                case "DIGIT_SELECTION":
-                    print("🔢 Time to select number of digits")
-                case "SECRET_SETTING":
-                    print("🔐 Time to set secret numbers")
-                case "FINISHED":
-                    print("🏁 Game has ended")
-                default:
-                    break
-                }
-            }
-        }
-        
-        // Update player info with better error handling
-        if let players = room["players"] as? [[String: Any]] {
-            for player in players {
-                if let playerId = player["id"] as? String, playerId == self.playerId {
-                    // Update digits
-                    if let selectedDigits = player["selectedDigits"] as? Int, selectedDigits != self.digits {
-                        self.digits = selectedDigits
-                        shouldUpdateUI = true
-                        print("🔢 Updated digits to: \(selectedDigits)")
-                    }
-                    
-                    // Update secret (but protect player-set secrets)
-                    if let secret = player["secret"] as? String, !secret.isEmpty {
-                        // Only update if we don't have a secret yet, or if it's clearly player-set
-                        if self.yourSecret.isEmpty {
-                            // No secret yet, accept from server
-                        self.yourSecret = secret
-                        secretText = secret
-                            shouldUpdateUI = true
-                            print("🔐 Received secret from server: \(secret)")
-                        } else if self.yourSecret != secret {
-                            // We have a different secret - check if server one looks auto-generated
-                            if isAutoGeneratedSecret(secret) {
-                                print("⚠️ Ignoring auto-generated secret from server: \(secret), keeping player secret: \(self.yourSecret)")
-                            } else if isValidPlayerSecret(secret, digits: self.digits) {
-                                // Server secret looks valid and player-set, update it
-                                print("🔄 Updating to new player secret: \(self.yourSecret) → \(secret)")
-                                self.yourSecret = secret
-                                secretText = secret
-                                shouldUpdateUI = true
-                            } else {
-                                print("❌ Rejecting invalid secret from server: \(secret)")
-                            }
-                        }
-                    }
-                    break
-                }
-            }
-        }
-        
-        // Enhanced turn management with validation
-        if let serverCurrentTurn = room["currentTurn"] as? String {
-            if serverCurrentTurn != currentTurn {
-                let oldTurn = currentTurn
-                print("🔄 Turn changed: '\(oldTurn)' → '\(serverCurrentTurn)'")
-                currentTurn = serverCurrentTurn
-                isMyTurn = (currentTurn == playerId)
-                shouldUpdateTurn = true
-                shouldUpdateUI = true
-                
-                // Add turn feedback
-                if isMyTurn {
-                    print("✅ It's YOUR turn!")
-        } else {
-                    print("⏳ Waiting for opponent's turn")
-                }
-            }
-        }
-        
-        // Process any additional metadata
-        if let serverTime = json["serverTime"] as? TimeInterval {
-            let localTime = Date().timeIntervalSince1970 * 1000
-            let timeDiff = abs(localTime - serverTime)
-            if timeDiff > 5000 { // 5 seconds
-                print("⏰ Time drift detected: \(timeDiff)ms")
-            }
-        }
-        
-        // Apply all UI updates in a single batch on main thread
-        if shouldUpdateUI || shouldUpdateTurn {
-            DispatchQueue.main.async { [weak self] in
-                guard let self = self else { return }
-                
-                if shouldUpdateUI {
-                    // Update secret label if we have secret text
-            if !secretText.isEmpty {
-                        self.secretLabel.text = "🔐 SECURITY CODE: \(secretText)"
-                    }
-                }
-                
-            if shouldUpdateTurn {
-                self.updateTurnUI()
-                    // Reschedule polling with new turn-aware interval
-                    self.scheduleSmartPolling()
-                }
-                
-                // Update keypad state
-                self.updateKeypadButtonsState()
-            }
-        }
-        
-        // Fetch history if we're in playing state for real-time updates
-        if gameState == "PLAYING" {
-            // 🎯 HISTORY IS NOW MANUAL ONLY - No auto-refresh to prevent flickering
-            // fetchGameHistory() // Disabled - user controls via refresh button
-        }
-    }
-    
-    private func updateGameHistory(_ history: [[String: Any]]) {
-        // More sensitive comparison using actual content
-        let historySignature = createHistorySignature(history)
-        
-        // Only update UI if history actually changed
-        guard historySignature != lastHistoryHash else {
-            print("📜 History unchanged, skipping UI update")
-            return
-        }
-        
-        print("📜 History changed: \(lastHistoryHash) → \(historySignature)")
-        lastHistoryHash = historySignature
-        
-        // Safely update history on main thread
-        DispatchQueue.main.async {
-            guard let historyContainer = self.historyContainer else {
-                print("⚠️ History container not initialized")
-                return
-            }
+            titleLabel.topAnchor.constraint(equalTo: practicePanel.topAnchor, constant: 10),
+            titleLabel.leadingAnchor.constraint(equalTo: practicePanel.leadingAnchor, constant: 10),
+            titleLabel.trailingAnchor.constraint(equalTo: practicePanel.trailingAnchor, constant: -10),
             
-            // 🎯 SMART LOADING: Initial load for first time, append for updates
-            if self.displayedHistoryEntries.isEmpty {
-                self.initialHistoryLoad(history: history)
-            } else {
-                self.appendNewHistoryEntries(newHistory: history)
-            }
-        }
-    }
-    
-    private func createHistorySignature(_ history: [[String: Any]]) -> Int {
-        // Create more detailed signature including content and order
-        var signature = ""
-        
-        for (index, entry) in history.enumerated() {
-            signature += "\(index):"
-            signature += (entry["playerName"] as? String ?? "") + "|"
-            signature += (entry["guess"] as? String ?? "") + "|"
-            signature += "\(entry["bulls"] as? Int ?? 0)" + "|"
-            signature += "\(entry["cows"] as? Int ?? 0)" + "|"
-            signature += (entry["timestamp"] as? String ?? "") + ";"
-        }
-        
-        return signature.hashValue
-    }
-    
-    // 🎯 REBUILD HISTORY REMOVED - Causes flickering! 
-    // Now using append-only approach for static display
-    
-    // 🎯 INITIAL HISTORY LOAD - For first time setup only
-    private func initialHistoryLoad(history: [[String: Any]]) {
-        guard let historyContainer = self.historyContainer else {
-            print("⚠️ History container not initialized")
-            return
-        }
-        
-        // Only load if container is truly empty and we have no displayed entries
-        guard displayedHistoryEntries.isEmpty && historyContainer.arrangedSubviews.isEmpty else {
-            print("📜 History already loaded, using append-only")
-            appendNewHistoryEntries(newHistory: history)
-            return
-        }
-        
-        print("📜 Initial history load: \(history.count) entries")
-        
-        // Directly add entries without removing anything (container is empty)
-        for (index, entry) in history.enumerated() {
-            let historyItemView = createHistoryItemView(
-                playerName: entry["playerName"] as? String ?? "?",
-                guess: entry["guess"] as? String ?? "?",
-                bulls: entry["bulls"] as? Int ?? 0,
-                cows: entry["cows"] as? Int ?? 0
-            )
+            subtitleLabel.topAnchor.constraint(equalTo: titleLabel.bottomAnchor, constant: 5),
+            subtitleLabel.leadingAnchor.constraint(equalTo: practicePanel.leadingAnchor, constant: 10),
+            subtitleLabel.trailingAnchor.constraint(equalTo: practicePanel.trailingAnchor, constant: -10),
             
-            historyContainer.addArrangedSubview(historyItemView)
-            print("📜 Initial load: \(entry["guess"] as? String ?? "?") by \(entry["playerName"] as? String ?? "?")")
+            playAgainButton.topAnchor.constraint(equalTo: subtitleLabel.bottomAnchor, constant: 10),
+            playAgainButton.centerXAnchor.constraint(equalTo: practicePanel.centerXAnchor),
+            playAgainButton.widthAnchor.constraint(equalToConstant: 160),
+            playAgainButton.heightAnchor.constraint(equalToConstant: 35)
+        ])
+        
+        // Keep guess input enabled for practice
+        guessTextField.isEnabled = true
+        submitButton.isEnabled = true
+        isMyTurn = true // Always allow practice guessing
+        updateKeypadButtonsState()
+    }
+    
+    private func removeGameEndUI() {
+        // Remove any existing game end panels
+        if let winnerPanel = view.subviews.first(where: { $0.accessibilityIdentifier == "winner-panel" }) {
+            winnerPanel.removeFromSuperview()
         }
-        
-        // Update tracking
-        displayedHistoryEntries = history
-        
-        // Auto-scroll to show latest
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
-            if let scrollView = historyContainer.superview as? UIScrollView {
-                let bottomOffset = CGPoint(x: 0, y: max(0, scrollView.contentSize.height - scrollView.bounds.height))
-                scrollView.setContentOffset(bottomOffset, animated: true)
-            }
+        if let practicePanel = view.subviews.first(where: { $0.accessibilityIdentifier == "practice-panel" }) {
+            practicePanel.removeFromSuperview()
         }
     }
     
-    // Note: showLoseDialogNetwork replaced with silent handling in handleGameEndSilently
+    @objc private func startRematch() {
+        // Call rematch API
+        let url = URL(string: "\(baseURL)/game/rematch-local")!
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        
+        let body = [
+            "roomId": roomId,
+            "playerId": playerId
+        ]
+        
+        do {
+            request.httpBody = try JSONSerialization.data(withJSONObject: body)
+        } catch {
+            print("❌ Error creating rematch request: \(error)")
+            return
+        }
+        
+        sharedURLSession.dataTask(with: request) { [weak self] data, response, error in
+            DispatchQueue.main.async {
+                if let error = error {
+                    print("❌ Rematch request failed: \(error)")
+                    return
+                }
+                
+                print("🔄 Rematch initiated")
+                self?.handleRematchStarted()
+            }
+        }.resume()
+    }
+    
+    @objc private func requestRematch() {
+        startRematch()
+    }
+    
+    private func handleRematchStarted() {
+        // Reset UI for new game
+        removeGameEndUI()
+        
+        // Reset game state
+        displayedHistoryEntries = []
+        if let historyContainer = historyContainer {
+            for subview in historyContainer.arrangedSubviews {
+                historyContainer.removeArrangedSubview(subview)
+                subview.removeFromSuperview()
+            }
+        }
+        
+        // Re-enable controls
+        guessTextField.isEnabled = true
+        submitButton.isEnabled = true
+        guessTextField.text = ""
+        
+        // Navigate back to waiting screen for digit selection
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+            self.navigationController?.popViewController(animated: true)
+        }
+    }
     
     // MARK: - Secret Protection Helpers
     private func isAutoGeneratedSecret(_ secret: String) -> Bool {
