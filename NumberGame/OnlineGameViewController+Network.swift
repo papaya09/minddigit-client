@@ -272,7 +272,13 @@ extension OnlineGameViewController {
         request.httpMethod = "GET"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         request.setValue("no-cache", forHTTPHeaderField: "Cache-Control")
-        request.timeoutInterval = 10.0 // Shorter timeout for better responsiveness
+        
+        // 🚨 VERCEL OPTIMIZATION: Dynamic timeout based on expected cold start
+        let expectedColdStart = lastSuccessfulResponse == nil || 
+                              (lastSuccessfulResponse?["serverless"] as? [String: Any])?["coldStart"] as? Bool == true
+        request.timeoutInterval = expectedColdStart ? 20.0 : 10.0
+        
+        let requestStartTime = Date.timeIntervalSinceReferenceDate
         
         URLSession.shared.dataTask(with: request) { [weak self] data, response, error in
             defer { completion?() }
@@ -281,8 +287,11 @@ extension OnlineGameViewController {
                 return 
             }
             
+            let responseTime = (Date.timeIntervalSinceReferenceDate - requestStartTime) * 1000 // ms
+            
             if let error = error {
-                print("❌ Network error:", error.localizedDescription)
+                print("❌ Network error (Vercel):", error.localizedDescription)
+                self.handleVercelError(error: error, responseTime: responseTime)
                 return
             }
             
@@ -291,37 +300,44 @@ extension OnlineGameViewController {
                 return
             }
             
+            // 🚨 VERCEL SPECIFIC: Handle 500 errors (cold start issues)
+            if httpResponse.statusCode == 500 {
+                guard let data = data,
+                      let errorString = String(data: data, encoding: .utf8) else {
+                    print("❌ HTTP 500 without error data")
+                    return
+                }
+                
+                print("❌ Vercel HTTP 500:", errorString)
+                self.handleVercelColdStart(responseTime: responseTime)
+                return
+            }
+            
             guard let data = data else {
                 print("❌ No data received")
                 return
             }
             
-            if httpResponse.statusCode != 200 {
-                print("❌ HTTP Error:", httpResponse.statusCode)
-                if let errorString = String(data: data, encoding: .utf8) {
-                    print("Error response:", errorString)
-                }
-                return
-            }
-            
             do {
                 if let json = try JSONSerialization.jsonObject(with: data) as? [String: Any] {
-                    print("📡 Status response received")
+                    print("📡 Status response received (Vercel)")
+                    
+                    // 🚨 VERCEL MONITORING: Track performance metrics
+                    self.processVercelMetrics(json: json, responseTime: responseTime)
                     
                     // Cache successful response
                     self.lastSuccessfulResponse = json
                     
-                    // Validate response has required fields
+                    // Process game state
                     if json["success"] as? Bool == true {
                         self.processGameState(json)
                     } else {
                         print("⚠️ Server reported error:", json["error"] as? String ?? "Unknown")
                         
-                        // Check if this is a recoverable error
-                        if let recovery = json["recovery"] as? Bool, recovery {
-                            print("🔄 Server indicated recovery mode")
-                            // Still process the response for state recovery
-                            self.processGameState(json)
+                        // Check for recovery suggestions
+                        if let recovery = json["recovery"] as? [String: Any],
+                           let suggestion = recovery["suggestion"] as? String {
+                            print("💡 Vercel recovery suggestion:", suggestion)
                         }
                     }
                 } else {
@@ -703,6 +719,160 @@ extension OnlineGameViewController {
         // Auto-remove after 4 seconds
         DispatchQueue.main.asyncAfter(deadline: .now() + 4.0) {
             errorView.removeFromSuperview()
+        }
+    }
+    
+    // MARK: - Vercel Serverless Specific Handlers
+    
+    private func processVercelMetrics(json: [String: Any], responseTime: Double) {
+        // Extract Vercel-specific metrics
+        if let room = json["room"] as? [String: Any],
+           let serverless = room["serverless"] as? [String: Any] {
+            
+            let platform = serverless["platform"] as? String ?? "unknown"
+            let coldStart = serverless["coldStart"] as? Bool ?? false
+            let region = serverless["region"] as? String ?? "unknown"
+            
+            print("📊 Vercel Metrics - Platform: \(platform), Cold Start: \(coldStart), Region: \(region), Response: \(Int(responseTime))ms")
+            
+            // Adjust polling based on performance
+            if coldStart || responseTime > 5000 {
+                print("⚡ Vercel cold start detected, adjusting polling strategy")
+                DispatchQueue.main.async { [weak self] in
+                    self?.adjustPollingForColdStart()
+                }
+            }
+            
+            // Check for performance warnings
+            if let performance = json["performance"] as? [String: Any],
+               let warning = performance["warning"] as? String {
+                print("⚠️ Vercel performance warning:", warning)
+                
+                DispatchQueue.main.async { [weak self] in
+                    self?.handlePerformanceWarning(warning)
+                }
+            }
+        }
+        
+        // Check for serverless recovery indicators
+        if let recovery = json["recovery"] as? [String: Any],
+           let detected = recovery["detected"] as? Bool, detected {
+            print("🔄 Vercel serverless recovery detected")
+            
+            DispatchQueue.main.async { [weak self] in
+                self?.showServerlessRecoveryMessage()
+            }
+        }
+    }
+    
+    private func handleVercelError(error: Error, responseTime: Double) {
+        // Check for timeout errors (common with cold starts)
+        if (error as NSError).code == NSURLErrorTimedOut {
+            print("⏰ Vercel timeout detected (likely cold start)")
+            handleVercelColdStart(responseTime: responseTime)
+        } else {
+            print("❌ Vercel network error:", error.localizedDescription)
+        }
+    }
+    
+    private func handleVercelColdStart(responseTime: Double) {
+        print("🥶 Handling Vercel cold start (response: \(Int(responseTime))ms)")
+        
+        // Increase retry delay for cold starts
+        retryCount += 1
+        
+        if retryCount >= maxRetries {
+            print("🔥 Warming Vercel functions")
+            
+            // Try to warm up the function
+            warmVercelFunctions { [weak self] in
+                self?.retryCount = 0
+                self?.scheduleSmartPolling()
+            }
+        }
+    }
+    
+    private func adjustPollingForColdStart() {
+        // Temporarily slow down polling to let Vercel functions warm up
+        gameTimer?.invalidate()
+        
+        let baseInterval: TimeInterval = isMyTurn ? 5.0 : 2.0  // Slower for cold starts
+        
+        gameTimer = Timer.scheduledTimer(withTimeInterval: baseInterval, repeats: true) { [weak self] _ in
+            self?.fetchGameStateWithRetry()
+        }
+        
+        print("❄️ Adjusted polling for Vercel cold start: \(baseInterval)s")
+        
+        // Return to normal polling after 30 seconds
+        DispatchQueue.main.asyncAfter(deadline: .now() + 30.0) { [weak self] in
+            self?.scheduleSmartPolling()
+            print("🔥 Resumed normal polling after Vercel warm-up")
+        }
+    }
+    
+    private func warmVercelFunctions(completion: @escaping () -> Void) {
+        print("🔥 Warming Vercel functions...")
+        
+        guard let url = URL(string: "\(baseURL)/health?warm=true") else {
+            completion()
+            return
+        }
+        
+        var request = URLRequest(url: url)
+        request.timeoutInterval = 30.0 // Long timeout for warming
+        
+        URLSession.shared.dataTask(with: request) { data, response, error in
+            if let error = error {
+                print("❌ Function warming failed:", error.localizedDescription)
+            } else {
+                print("✅ Vercel functions warmed")
+            }
+            
+            DispatchQueue.main.async {
+                completion()
+            }
+        }.resume()
+    }
+    
+    private func handlePerformanceWarning(_ warning: String) {
+        // Show subtle warning to user
+        let warningLabel = UILabel()
+        warningLabel.text = "⚡ Optimizing connection..."
+        warningLabel.font = UIFont.systemFont(ofSize: 11)
+        warningLabel.textColor = UIColor.systemYellow
+        warningLabel.textAlignment = .center
+        warningLabel.translatesAutoresizingMaskIntoConstraints = false
+        
+        view.addSubview(warningLabel)
+        NSLayoutConstraint.activate([
+            warningLabel.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor, constant: 50),
+            warningLabel.centerXAnchor.constraint(equalTo: view.centerXAnchor)
+        ])
+        
+        // Auto-remove after 3 seconds
+        DispatchQueue.main.asyncAfter(deadline: .now() + 3.0) {
+            warningLabel.removeFromSuperview()
+        }
+    }
+    
+    private func showServerlessRecoveryMessage() {
+        let recoveryLabel = UILabel()
+        recoveryLabel.text = "🔄 Game state recovered"
+        recoveryLabel.font = UIFont.systemFont(ofSize: 11)
+        recoveryLabel.textColor = UIColor.systemGreen
+        recoveryLabel.textAlignment = .center
+        recoveryLabel.translatesAutoresizingMaskIntoConstraints = false
+        
+        view.addSubview(recoveryLabel)
+        NSLayoutConstraint.activate([
+            recoveryLabel.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor, constant: 70),
+            recoveryLabel.centerXAnchor.constraint(equalTo: view.centerXAnchor)
+        ])
+        
+        // Auto-remove after 2 seconds
+        DispatchQueue.main.asyncAfter(deadline: .now() + 2.0) {
+            recoveryLabel.removeFromSuperview()
         }
     }
 }
