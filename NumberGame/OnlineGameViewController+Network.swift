@@ -821,7 +821,8 @@ extension OnlineGameViewController {
         
         // Silent fetch fresh data
         fetchGameStateWithSilentRetry()
-        fetchGameHistory()
+        // 🎯 HISTORY IS NOW MANUAL ONLY - No auto-refresh to prevent flickering
+        // fetchGameHistory() // Disabled - user controls via refresh button
     }
     
     private func performGameStateReset() {
@@ -919,12 +920,12 @@ extension OnlineGameViewController {
             
             // 🚨 VERCEL SPECIFIC: Handle 500 errors (cold start issues)
             if httpResponse.statusCode == 500 {
-                guard let data = data,
+            guard let data = data,
                       let errorString = String(data: data, encoding: .utf8) else {
                     print("❌ HTTP 500 without error data")
-                    return
-                }
-                
+                return
+            }
+            
                 print("❌ Vercel HTTP 500:", errorString)
                 self.handleVercelColdStart(responseTime: responseTime)
                 return
@@ -966,6 +967,156 @@ extension OnlineGameViewController {
         }.resume()
     }
     
+    // MARK: - History Management
+    
+    // 🎯 APPEND-ONLY HISTORY UPDATE - No more flickering!
+    func fetchGameHistoryForAppend(completion: @escaping () -> Void) {
+        guard !roomId.isEmpty, !playerId.isEmpty else { 
+            completion()
+            return 
+        }
+        
+        let urlString = "\(baseURL)/game/history-local?roomId=\(roomId)&playerId=\(playerId)"
+        guard let url = URL(string: urlString) else { 
+            completion()
+            return 
+        }
+        
+        let requestStartTime = Date.timeIntervalSinceReferenceDate
+        
+        sharedURLSession.dataTask(with: url) { [weak self] data, response, error in
+            let responseTime = (Date.timeIntervalSinceReferenceDate - requestStartTime) * 1000
+            
+            guard let self = self else { 
+                completion()
+                return 
+            }
+            
+            // Update performance metrics
+            self.updatePerformanceMetrics(responseTime: responseTime, endpoint: "history-append")
+            
+            if let data = data,
+               let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+               let success = json["success"] as? Bool, success,
+               let newHistory = json["history"] as? [[String: Any]] {
+                
+                DispatchQueue.main.async {
+                    self.appendNewHistoryEntries(newHistory: newHistory)
+                    
+                    // Silent win/lose handling (no disruptive dialogs)
+                    if let winner = json["winner"] as? [String: Any],
+                       let winnerPlayerId = winner["playerId"] as? String {
+                        self.handleGameEndSilently(winnerId: winnerPlayerId, winnerName: winner["playerName"] as? String)
+                    }
+                    
+                    completion()
+                }
+            } else {
+                print("🎯 History append fetch failed silently")
+                completion()
+            }
+        }.resume()
+    }
+    
+    // 🎯 SMART APPEND: Only add new entries, keep existing ones
+    private func appendNewHistoryEntries(newHistory: [[String: Any]]) {
+        guard let historyContainer = self.historyContainer else {
+            print("⚠️ History container not initialized")
+            return
+        }
+        
+        // Find new entries by comparing with what's already displayed
+        let newEntries = findNewHistoryEntries(current: displayedHistoryEntries, new: newHistory)
+        
+        if newEntries.isEmpty {
+            print("📜 No new history entries to append")
+            return
+        }
+        
+        print("📜 Appending \(newEntries.count) new history entries")
+        
+        // Remove placeholder if it exists
+        if displayedHistoryEntries.isEmpty {
+            for subview in historyContainer.arrangedSubviews {
+                if subview.accessibilityIdentifier == "history-placeholder" {
+                    historyContainer.removeArrangedSubview(subview)
+                    subview.removeFromSuperview()
+                    break
+                }
+            }
+        }
+        
+        // Append only new entries with smooth animation
+        for (index, entry) in newEntries.enumerated() {
+            DispatchQueue.main.asyncAfter(deadline: .now() + Double(index) * 0.1) {
+                let historyItemView = self.createHistoryItemView(
+                    playerName: entry["playerName"] as? String ?? "?",
+                    guess: entry["guess"] as? String ?? "?",
+                    bulls: entry["bulls"] as? Int ?? 0,
+                    cows: entry["cows"] as? Int ?? 0
+                )
+                
+                // Smooth fade-in animation
+                historyItemView.alpha = 0.0
+                historyItemView.transform = CGAffineTransform(translationX: 0, y: 20)
+                self.historyContainer.addArrangedSubview(historyItemView)
+                
+                UIView.animate(withDuration: 0.3, delay: 0, options: .curveEaseOut) {
+                    historyItemView.alpha = 1.0
+                    historyItemView.transform = CGAffineTransform.identity
+                }
+                
+                print("📜 Appended: \(entry["guess"] as? String ?? "?") by \(entry["playerName"] as? String ?? "?")")
+            }
+        }
+        
+        // Update our tracking of displayed entries
+        displayedHistoryEntries = newHistory
+        
+        // Auto-scroll to show new entries
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+            if let scrollView = historyContainer.superview as? UIScrollView {
+                let bottomOffset = CGPoint(x: 0, y: max(0, scrollView.contentSize.height - scrollView.bounds.height))
+                scrollView.setContentOffset(bottomOffset, animated: true)
+            }
+        }
+    }
+    
+    // 🎯 SMART DIFF: Find which entries are new
+    private func findNewHistoryEntries(current: [[String: Any]], new: [[String: Any]]) -> [[String: Any]] {
+        // If we have no current entries, all new entries are... new!
+        if current.isEmpty {
+            return new
+        }
+        
+        // Compare based on content to find truly new entries
+        var newEntries: [[String: Any]] = []
+        
+        for newEntry in new {
+            let isExisting = current.contains { existingEntry in
+                return isSameHistoryEntry(existingEntry, newEntry)
+            }
+            
+            if !isExisting {
+                newEntries.append(newEntry)
+            }
+        }
+        
+        return newEntries
+    }
+    
+    // 🎯 ENTRY COMPARISON: Check if two history entries are the same
+    private func isSameHistoryEntry(_ entry1: [String: Any], _ entry2: [String: Any]) -> Bool {
+        let player1 = entry1["playerName"] as? String ?? ""
+        let player2 = entry2["playerName"] as? String ?? ""
+        let guess1 = entry1["guess"] as? String ?? ""
+        let guess2 = entry2["guess"] as? String ?? ""
+        let timestamp1 = entry1["timestamp"] as? String ?? ""
+        let timestamp2 = entry2["timestamp"] as? String ?? ""
+        
+        return player1 == player2 && guess1 == guess2 && timestamp1 == timestamp2
+    }
+    
     func fetchGameHistory(completion: (() -> Void)? = nil) {
         // 🎯 First, show cached data immediately
         displayCachedDataIfAvailable()
@@ -1000,7 +1151,7 @@ extension OnlineGameViewController {
             
             guard let self = self else { 
                 completion(false)
-                return 
+                return
             }
             
             // Update performance metrics
@@ -1014,13 +1165,13 @@ extension OnlineGameViewController {
                 // 🎯 Update cache
                 self.cachedGameHistory = history
                 self.lastHistorySync = Date.timeIntervalSinceReferenceDate
-                
-                DispatchQueue.main.async {
+            
+            DispatchQueue.main.async {
                     self.updateGameHistory(history)
-                    
+                
                     // Silent win/lose handling (no disruptive dialogs)
-                    if let winner = json["winner"] as? [String: Any],
-                       let winnerPlayerId = winner["playerId"] as? String {
+                if let winner = json["winner"] as? [String: Any],
+                   let winnerPlayerId = winner["playerId"] as? String {
                         self.handleGameEndSilently(winnerId: winnerPlayerId, winnerName: winner["playerName"] as? String)
                     }
                 }
@@ -1161,8 +1312,8 @@ extension OnlineGameViewController {
                         // Only update if we don't have a secret yet, or if it's clearly player-set
                         if self.yourSecret.isEmpty {
                             // No secret yet, accept from server
-                            self.yourSecret = secret
-                            secretText = secret
+                        self.yourSecret = secret
+                        secretText = secret
                             shouldUpdateUI = true
                             print("🔐 Received secret from server: \(secret)")
                         } else if self.yourSecret != secret {
@@ -1198,7 +1349,7 @@ extension OnlineGameViewController {
                 // Add turn feedback
                 if isMyTurn {
                     print("✅ It's YOUR turn!")
-                } else {
+        } else {
                     print("⏳ Waiting for opponent's turn")
                 }
             }
@@ -1220,13 +1371,13 @@ extension OnlineGameViewController {
                 
                 if shouldUpdateUI {
                     // Update secret label if we have secret text
-                    if !secretText.isEmpty {
+            if !secretText.isEmpty {
                         self.secretLabel.text = "🔐 SECURITY CODE: \(secretText)"
                     }
                 }
                 
-                if shouldUpdateTurn {
-                    self.updateTurnUI()
+            if shouldUpdateTurn {
+                self.updateTurnUI()
                     // Reschedule polling with new turn-aware interval
                     self.scheduleSmartPolling()
                 }
@@ -1238,7 +1389,8 @@ extension OnlineGameViewController {
         
         // Fetch history if we're in playing state for real-time updates
         if gameState == "PLAYING" {
-            fetchGameHistory()
+            // 🎯 HISTORY IS NOW MANUAL ONLY - No auto-refresh to prevent flickering
+            // fetchGameHistory() // Disabled - user controls via refresh button
         }
     }
     
@@ -1284,21 +1436,21 @@ extension OnlineGameViewController {
     }
     
     private func rebuildHistoryView(with history: [[String: Any]], container: UIStackView) {
-        // Remove existing views safely
+                // Remove existing views safely
         for subview in container.arrangedSubviews {
             container.removeArrangedSubview(subview)
-            subview.removeFromSuperview()
-        }
-        
-        if history.isEmpty {
-            // Add placeholder if no history
-            let placeholderView = self.createPlaceholderView()
+                    subview.removeFromSuperview()
+                }
+                
+                if history.isEmpty {
+                    // Add placeholder if no history
+                    let placeholderView = self.createPlaceholderView()
             container.addArrangedSubview(placeholderView)
             print("📜 Added placeholder - no game history yet")
-        } else {
+                } else {
             // Add new entries in order
             for (index, entry) in history.enumerated() {
-                self.addHistoryEntry(entry)
+                        self.addHistoryEntry(entry)
                 print("📜 Added history entry \(index + 1): \(entry["guess"] as? String ?? "?") by \(entry["playerName"] as? String ?? "?")")
             }
         }
@@ -1445,7 +1597,7 @@ extension OnlineGameViewController {
         if (error as NSError).code == NSURLErrorTimedOut {
             print("⏰ Vercel timeout detected (likely cold start)")
             handleVercelColdStart(responseTime: responseTime)
-        } else {
+            } else {
             print("❌ Vercel network error:", error.localizedDescription)
         }
     }
@@ -1596,7 +1748,9 @@ extension OnlineGameViewController {
         case "gameState":
             fetchGameStateWithSilentRetry()
         case "history":
-            fetchGameHistory()
+            // 🎯 HISTORY IS NOW MANUAL ONLY - No auto-refresh to prevent flickering
+            // fetchGameHistory() // Disabled - user controls via refresh button
+            print("🎯 History request skipped - manual only")
         default:
             print("🎯 Unknown queued request type: \(nextRequest)")
         }

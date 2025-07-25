@@ -57,6 +57,10 @@ class OnlineGameViewController: UIViewController {
     var historyCache: [String: Any] = [:]
     var currentHistorySignature: Int = 0
     
+    // 🎯 PERSISTENT HISTORY TRACKING
+    var displayedHistoryEntries: [[String: Any]] = [] // Track what's currently shown
+    var historyRefreshButton: UIButton!
+    
     // Network Health Tracking
     var networkHealth: [String: Any] = [
         "successRate": 1.0,
@@ -994,6 +998,26 @@ class OnlineGameViewController: UIViewController {
         
         historyCard.addSubview(historyLabel)
         
+        // 🎯 MANUAL HISTORY REFRESH BUTTON
+        historyRefreshButton = UIButton(type: .system)
+        historyRefreshButton.setTitle("🔄 REFRESH", for: .normal)
+        historyRefreshButton.titleLabel?.font = UIFont(name: "Menlo-Bold", size: 12) ?? UIFont.boldSystemFont(ofSize: 12)
+        historyRefreshButton.setTitleColor(UIColor(red: 0.3, green: 0.8, blue: 1.0, alpha: 1.0), for: .normal)
+        historyRefreshButton.backgroundColor = UIColor(red: 0.06, green: 0.1, blue: 0.16, alpha: 0.8)
+        historyRefreshButton.layer.cornerRadius = 12
+        historyRefreshButton.layer.borderWidth = 1
+        historyRefreshButton.layer.borderColor = UIColor(red: 0.2, green: 0.6, blue: 0.9, alpha: 0.6).cgColor
+        historyRefreshButton.translatesAutoresizingMaskIntoConstraints = false
+        historyRefreshButton.addTarget(self, action: #selector(manualRefreshHistory), for: .touchUpInside)
+        
+        // SpaceX glow effect for refresh button
+        historyRefreshButton.layer.shadowColor = UIColor(red: 0.3, green: 0.7, blue: 1.0, alpha: 0.6).cgColor
+        historyRefreshButton.layer.shadowOffset = CGSize(width: 0, height: 0)
+        historyRefreshButton.layer.shadowOpacity = 0.6
+        historyRefreshButton.layer.shadowRadius = 4
+        
+        historyCard.addSubview(historyRefreshButton)
+        
         // Create history container as UIStackView - Better spacing for content
         historyContainer = UIStackView()
         historyContainer.axis = .vertical
@@ -1021,10 +1045,16 @@ class OnlineGameViewController: UIViewController {
             // History label - Compact
             historyLabel.topAnchor.constraint(equalTo: historyCard.topAnchor, constant: 12),
             historyLabel.leadingAnchor.constraint(equalTo: historyCard.leadingAnchor, constant: 15),
-            historyLabel.trailingAnchor.constraint(equalTo: historyCard.trailingAnchor, constant: -15),
+            historyLabel.trailingAnchor.constraint(equalTo: historyRefreshButton.leadingAnchor, constant: -10),
+            
+            // 🎯 REFRESH BUTTON CONSTRAINTS
+            historyRefreshButton.topAnchor.constraint(equalTo: historyCard.topAnchor, constant: 10),
+            historyRefreshButton.trailingAnchor.constraint(equalTo: historyCard.trailingAnchor, constant: -15),
+            historyRefreshButton.widthAnchor.constraint(equalToConstant: 80),
+            historyRefreshButton.heightAnchor.constraint(equalToConstant: 28),
             
             // Scroll view - Maximum space for content
-            scrollView.topAnchor.constraint(equalTo: historyLabel.bottomAnchor, constant: 12),
+            scrollView.topAnchor.constraint(equalTo: historyRefreshButton.bottomAnchor, constant: 8),
             scrollView.leadingAnchor.constraint(equalTo: historyCard.leadingAnchor, constant: 8),
             scrollView.trailingAnchor.constraint(equalTo: historyCard.trailingAnchor, constant: -8),
             scrollView.bottomAnchor.constraint(equalTo: historyCard.bottomAnchor, constant: -8),
@@ -1141,6 +1171,32 @@ class OnlineGameViewController: UIViewController {
         fetchGameHistory()
     }
     
+    // 🎯 MANUAL HISTORY REFRESH
+    @objc func manualRefreshHistory() {
+        print("🔄 Manual history refresh triggered")
+        
+        // Visual feedback for button press
+        UIView.animate(withDuration: 0.1, animations: {
+            self.historyRefreshButton.transform = CGAffineTransform(scaleX: 0.95, y: 0.95)
+        }) { _ in
+            UIView.animate(withDuration: 0.1) {
+                self.historyRefreshButton.transform = CGAffineTransform.identity
+            }
+        }
+        
+        // Update button text to show loading
+        historyRefreshButton.setTitle("🔄 ...", for: .normal)
+        historyRefreshButton.isEnabled = false
+        
+        // Fetch new history and append only new entries
+        fetchGameHistoryForAppend { [weak self] in
+            DispatchQueue.main.async {
+                self?.historyRefreshButton.setTitle("🔄 REFRESH", for: .normal)
+                self?.historyRefreshButton.isEnabled = true
+            }
+        }
+    }
+    
     func updateTurnDisplay() {
         isMyTurn = (currentTurn == playerId)
         updateTurnUI()
@@ -1167,6 +1223,7 @@ class OnlineGameViewController: UIViewController {
         container.layer.cornerRadius = 16
         container.layer.borderWidth = 2
         container.layer.borderColor = UIColor(red: 0.3, green: 0.7, blue: 1.0, alpha: 0.5).cgColor
+        container.accessibilityIdentifier = "history-placeholder" // 🎯 For easy removal
         
         // Add SpaceX waiting glow
         container.layer.shadowColor = UIColor(red: 0.3, green: 0.7, blue: 1.0, alpha: 0.3).cgColor
