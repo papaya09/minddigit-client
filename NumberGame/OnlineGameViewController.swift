@@ -22,6 +22,7 @@ class OnlineGameViewController: UIViewController {
     var isMyTurn: Bool = false
     var gameTimer: Timer?
     var yourSecret: String = ""
+    var lastHistoryHash: Int = 0 // For smart history updates
     
     // Network
     let baseURL = "https://minddigit-server.vercel.app/api"
@@ -79,18 +80,18 @@ class OnlineGameViewController: UIViewController {
         // Update room label immediately with safety check - only if view is loaded
         if Thread.isMainThread && isViewLoaded {
             if let roomLabel = self.roomLabel, roomLabel.superview != nil {
-                roomLabel.text = "Room: \(roomId)"
+                roomLabel.text = "MISSION ID: \(roomId)"
             }
             if let secretLabel = self.secretLabel, secretLabel.superview != nil {
-                secretLabel.text = "Your Secret: Set"
+                secretLabel.text = "🔐 SECURITY PROTOCOL: ACTIVE"
             }
         } else if isViewLoaded {
             DispatchQueue.main.async {
                 if let roomLabel = self.roomLabel, roomLabel.superview != nil {
-                    roomLabel.text = "Room: \(roomId)"
+                    roomLabel.text = "MISSION ID: \(roomId)"
                 }
                 if let secretLabel = self.secretLabel, secretLabel.superview != nil {
-                    secretLabel.text = "Your Secret: Set"
+                    secretLabel.text = "🔐 SECURITY PROTOCOL: ACTIVE"
                 }
             }
         } else {
@@ -121,11 +122,11 @@ class OnlineGameViewController: UIViewController {
         }
         
         if isMyTurn {
-            turnLabel.text = "🎯 Your Turn - Use Keypad"
-            turnLabel.textColor = .systemGreen
+            turnLabel.text = "🎯 WEAPONS ARMED • READY TO FIRE"
+            turnLabel.textColor = UIColor(red: 0.2, green: 0.9, blue: 0.3, alpha: 1.0) // SpaceX green
         } else {
-            turnLabel.text = "⏳ Opponent's Turn"
-            turnLabel.textColor = .systemOrange
+            turnLabel.text = "⏳ AWAITING TARGET LOCK"
+            turnLabel.textColor = UIColor(red: 1.0, green: 0.6, blue: 0.2, alpha: 1.0) // Orange alert
         }
         
         // Display field styling based on turn - with safety checks
@@ -162,7 +163,7 @@ class OnlineGameViewController: UIViewController {
         print("🎯 UI updated - Turn: \(isMyTurn ? "MY TURN" : "OPPONENT'S TURN"), Submit enabled: \(submitButton.isEnabled)")
     }
     
-    private func updateKeypadButtonsState() {
+    func updateKeypadButtonsState() {
         // MUST be on main thread
         assert(Thread.isMainThread, "updateKeypadButtonsState() must be called from main thread")
         
@@ -237,25 +238,97 @@ class OnlineGameViewController: UIViewController {
         setupGameBoard()
         setupKeypad()
         setupControlButtons()
+        setupRefreshButton() // Add refresh button
         // setupHistory() // Temporarily disabled to avoid crash
         setupConstraints()
     }
     
+    private func setupRefreshButton() {
+        let refreshButton = UIButton(type: .system)
+        refreshButton.setTitle("🔄", for: .normal)
+        refreshButton.backgroundColor = UIColor.systemBlue.withAlphaComponent(0.8)
+        refreshButton.setTitleColor(.white, for: .normal)
+        refreshButton.titleLabel?.font = UIFont.systemFont(ofSize: 20, weight: .bold)
+        refreshButton.layer.cornerRadius = 20
+        refreshButton.layer.borderWidth = 2
+        refreshButton.layer.borderColor = UIColor.systemCyan.cgColor
+        refreshButton.translatesAutoresizingMaskIntoConstraints = false
+        
+        // Add glow effect
+        refreshButton.layer.shadowColor = UIColor.systemBlue.cgColor
+        refreshButton.layer.shadowOffset = CGSize(width: 0, height: 0)
+        refreshButton.layer.shadowOpacity = 0.6
+        refreshButton.layer.shadowRadius = 8
+        
+        refreshButton.addTarget(self, action: #selector(manualRefresh), for: .touchUpInside)
+        view.addSubview(refreshButton)
+        
+        NSLayoutConstraint.activate([
+            refreshButton.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor, constant: 15),
+            refreshButton.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -20),
+            refreshButton.widthAnchor.constraint(equalToConstant: 40),
+            refreshButton.heightAnchor.constraint(equalToConstant: 40)
+        ])
+    }
+    
+    @objc private func manualRefresh() {
+        print("🔄 Manual refresh triggered")
+        
+        // Visual feedback
+        let refreshButton = view.subviews.first { $0 is UIButton && ($0 as! UIButton).titleLabel?.text == "🔄" } as? UIButton
+        refreshButton?.transform = CGAffineTransform(rotationAngle: .pi)
+        
+        UIView.animate(withDuration: 0.5, delay: 0, usingSpringWithDamping: 0.7, initialSpringVelocity: 0.5) {
+            refreshButton?.transform = CGAffineTransform.identity
+        }
+        
+        // Immediate sync
+        fetchGameState()
+        fetchGameHistory()
+        
+        // Haptic feedback
+        let impactFeedback = UIImpactFeedbackGenerator(style: .medium)
+        impactFeedback.impactOccurred()
+    }
+    
     private func setupBackground() {
+        // SpaceX Dark Space Background
+        view.backgroundColor = UIColor(red: 0.05, green: 0.05, blue: 0.1, alpha: 1.0) // Very dark space blue
+        
         backgroundImageView.translatesAutoresizingMaskIntoConstraints = false
         view.addSubview(backgroundImageView)
         
         backgroundOverlay.translatesAutoresizingMaskIntoConstraints = false
         view.addSubview(backgroundOverlay)
         
+        // SpaceX-inspired gradient - dark space to lighter cosmic blue
         let gradientLayer = CAGradientLayer()
         gradientLayer.colors = [
-            UIColor.systemOrange.withAlphaComponent(0.8).cgColor,
-            UIColor.systemRed.withAlphaComponent(0.6).cgColor,
-            UIColor.systemPink.withAlphaComponent(0.8).cgColor
+            UIColor(red: 0.03, green: 0.07, blue: 0.15, alpha: 0.95).cgColor, // Deep space
+            UIColor(red: 0.08, green: 0.12, blue: 0.25, alpha: 0.9).cgColor,  // Mid space
+            UIColor(red: 0.15, green: 0.20, blue: 0.35, alpha: 0.85).cgColor, // Cosmic blue
+            UIColor(red: 0.05, green: 0.05, blue: 0.15, alpha: 0.9).cgColor   // Return to deep
         ]
-        gradientLayer.locations = [0.0, 0.5, 1.0]
+        gradientLayer.locations = [0.0, 0.3, 0.7, 1.0]
+        gradientLayer.type = .radial
+        gradientLayer.startPoint = CGPoint(x: 0.5, y: 0.3)
+        gradientLayer.endPoint = CGPoint(x: 0.5, y: 1.0)
         backgroundOverlay.layer.addSublayer(gradientLayer)
+        
+        // Add subtle star-like dots pattern
+        let starLayer = CAShapeLayer()
+        let starPath = UIBezierPath()
+        
+        // Create random star positions
+        for _ in 0..<50 {
+            let x = CGFloat.random(in: 0...UIScreen.main.bounds.width)
+            let y = CGFloat.random(in: 0...UIScreen.main.bounds.height)
+            starPath.addArc(withCenter: CGPoint(x: x, y: y), radius: 1, startAngle: 0, endAngle: .pi * 2, clockwise: true)
+        }
+        
+        starLayer.path = starPath.cgPath
+        starLayer.fillColor = UIColor.white.withAlphaComponent(0.7).cgColor
+        backgroundOverlay.layer.addSublayer(starLayer)
         
         DispatchQueue.main.async {
             gradientLayer.frame = self.backgroundOverlay.bounds
@@ -263,23 +336,69 @@ class OnlineGameViewController: UIViewController {
     }
     
     private func setupTitleSection() {
-        titleLabel.text = "🎮 Online Battle"
-        titleLabel.font = UIFont.systemFont(ofSize: 20, weight: .bold)
-        titleLabel.textColor = .white
+        // SpaceX Mission Style Title
+        titleLabel.text = "🚀 DRAGON MISSION • BATTLE ARENA"
+        titleLabel.font = UIFont(name: "Menlo-Bold", size: 18) ?? UIFont.systemFont(ofSize: 18, weight: .bold)
+        titleLabel.textColor = UIColor(red: 0.9, green: 0.95, blue: 1.0, alpha: 1.0) // Cool white
         titleLabel.textAlignment = .center
         titleLabel.translatesAutoresizingMaskIntoConstraints = false
         
-        titleLabel.layer.shadowColor = UIColor.black.cgColor
-        titleLabel.layer.shadowOffset = CGSize(width: 2, height: 2)
+        // SpaceX-style futuristic glow effect
+        titleLabel.layer.shadowColor = UIColor(red: 0.3, green: 0.7, blue: 1.0, alpha: 1.0).cgColor // Blue glow
+        titleLabel.layer.shadowOffset = CGSize(width: 0, height: 0)
         titleLabel.layer.shadowOpacity = 0.8
-        titleLabel.layer.shadowRadius = 4
+        titleLabel.layer.shadowRadius = 8
+        
+        // Add subtle border frame around title
+        let titleContainer = UIView()
+        titleContainer.backgroundColor = UIColor.clear
+        titleContainer.layer.borderWidth = 1
+        titleContainer.layer.borderColor = UIColor(red: 0.3, green: 0.7, blue: 1.0, alpha: 0.6).cgColor
+        titleContainer.layer.cornerRadius = 12
+        titleContainer.translatesAutoresizingMaskIntoConstraints = false
+        view.addSubview(titleContainer)
+        
+        titleContainer.addSubview(titleLabel)
+        
+        // Mission status indicator
+        let statusIndicator = UIView()
+        statusIndicator.backgroundColor = UIColor(red: 0.2, green: 0.8, blue: 0.3, alpha: 1.0) // SpaceX green
+        statusIndicator.layer.cornerRadius = 4
+        statusIndicator.translatesAutoresizingMaskIntoConstraints = false
+        titleContainer.addSubview(statusIndicator)
+        
+        // Animate status indicator
+        let pulseAnimation = CABasicAnimation(keyPath: "opacity")
+        pulseAnimation.fromValue = 0.3
+        pulseAnimation.toValue = 1.0
+        pulseAnimation.duration = 1.0
+        pulseAnimation.repeatCount = .infinity
+        pulseAnimation.autoreverses = true
+        statusIndicator.layer.add(pulseAnimation, forKey: "pulse")
         
         view.addSubview(titleLabel)
         
-        loadingSpinner.color = .white
+        // SpaceX-style loading spinner
+        loadingSpinner.color = UIColor(red: 0.3, green: 0.7, blue: 1.0, alpha: 1.0)
+        loadingSpinner.style = .large
         loadingSpinner.hidesWhenStopped = true
         loadingSpinner.translatesAutoresizingMaskIntoConstraints = false
         view.addSubview(loadingSpinner)
+        
+        NSLayoutConstraint.activate([
+            titleContainer.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor, constant: 10),
+            titleContainer.centerXAnchor.constraint(equalTo: view.centerXAnchor),
+            titleContainer.widthAnchor.constraint(equalToConstant: 320),
+            titleContainer.heightAnchor.constraint(equalToConstant: 45),
+            
+            titleLabel.centerXAnchor.constraint(equalTo: titleContainer.centerXAnchor),
+            titleLabel.centerYAnchor.constraint(equalTo: titleContainer.centerYAnchor),
+            
+            statusIndicator.leadingAnchor.constraint(equalTo: titleContainer.leadingAnchor, constant: 12),
+            statusIndicator.centerYAnchor.constraint(equalTo: titleContainer.centerYAnchor),
+            statusIndicator.widthAnchor.constraint(equalToConstant: 8),
+            statusIndicator.heightAnchor.constraint(equalToConstant: 8)
+        ])
     }
     
     private func setupGameInfo() {
@@ -288,30 +407,58 @@ class OnlineGameViewController: UIViewController {
         turnLabel = UILabel()
         secretLabel = UILabel()
         
-        gameInfoCard.backgroundColor = UIColor.black.withAlphaComponent(0.4)
-        gameInfoCard.layer.cornerRadius = 10
-        gameInfoCard.layer.borderWidth = 1
-        gameInfoCard.layer.borderColor = UIColor.systemCyan.withAlphaComponent(0.6).cgColor
+        // SpaceX Mission Control Panel Style
+        gameInfoCard.backgroundColor = UIColor(red: 0.08, green: 0.12, blue: 0.18, alpha: 0.9)
+        gameInfoCard.layer.cornerRadius = 16
+        gameInfoCard.layer.borderWidth = 2
+        gameInfoCard.layer.borderColor = UIColor(red: 0.3, green: 0.7, blue: 1.0, alpha: 0.8).cgColor
+        
+        // Add inner glow effect
+        gameInfoCard.layer.shadowColor = UIColor(red: 0.3, green: 0.7, blue: 1.0, alpha: 0.5).cgColor
+        gameInfoCard.layer.shadowOffset = CGSize(width: 0, height: 0)
+        gameInfoCard.layer.shadowOpacity = 0.6
+        gameInfoCard.layer.shadowRadius = 12
+        
+        // Add subtle inner border
+        let innerBorder = CALayer()
+        innerBorder.borderColor = UIColor(red: 0.4, green: 0.8, blue: 1.0, alpha: 0.3).cgColor
+        innerBorder.borderWidth = 1
+        innerBorder.cornerRadius = 14
+        gameInfoCard.layer.addSublayer(innerBorder)
+        
         gameInfoCard.translatesAutoresizingMaskIntoConstraints = false
         view.addSubview(gameInfoCard)
         
-        roomLabel.text = "Room: ----"
-        roomLabel.font = UIFont.systemFont(ofSize: 14, weight: .semibold)
-        roomLabel.textColor = .systemCyan
+        // Room Label - Mission ID Style
+        roomLabel.text = "MISSION ID: ----"
+        roomLabel.font = UIFont(name: "Menlo-Regular", size: 13) ?? UIFont.systemFont(ofSize: 13, weight: .medium)
+        roomLabel.textColor = UIColor(red: 0.3, green: 0.8, blue: 1.0, alpha: 1.0) // SpaceX blue
         roomLabel.textAlignment = .center
         roomLabel.translatesAutoresizingMaskIntoConstraints = false
         gameInfoCard.addSubview(roomLabel)
         
-        turnLabel.text = "⏳ Waiting for turn..."
-        turnLabel.font = UIFont.systemFont(ofSize: 16, weight: .bold)
-        turnLabel.textColor = .systemOrange
+        // Turn Label - Status Display Style
+        turnLabel.text = "⚡ SYSTEM STANDBY"
+        turnLabel.font = UIFont(name: "Menlo-Bold", size: 15) ?? UIFont.systemFont(ofSize: 15, weight: .bold)
+        turnLabel.textColor = UIColor(red: 1.0, green: 0.6, blue: 0.2, alpha: 1.0) // Warm orange
         turnLabel.textAlignment = .center
         turnLabel.translatesAutoresizingMaskIntoConstraints = false
+        
+        // Add pulsing effect for turn label
+        let pulseAnimation = CABasicAnimation(keyPath: "opacity")
+        pulseAnimation.fromValue = 0.6
+        pulseAnimation.toValue = 1.0
+        pulseAnimation.duration = 1.2
+        pulseAnimation.repeatCount = .infinity
+        pulseAnimation.autoreverses = true
+        turnLabel.layer.add(pulseAnimation, forKey: "statusPulse")
+        
         gameInfoCard.addSubview(turnLabel)
         
-        secretLabel.text = "Your Secret: Not Set"
-        secretLabel.font = UIFont.systemFont(ofSize: 12)
-        secretLabel.textColor = .systemGray
+        // Secret Label - Security Status Style
+        secretLabel.text = "🔐 SECURITY PROTOCOL: INACTIVE"
+        secretLabel.font = UIFont(name: "Menlo-Regular", size: 11) ?? UIFont.systemFont(ofSize: 11, weight: .regular)
+        secretLabel.textColor = UIColor(red: 0.7, green: 0.8, blue: 0.9, alpha: 0.8) // Light gray-blue
         secretLabel.textAlignment = .center
         secretLabel.translatesAutoresizingMaskIntoConstraints = false
         gameInfoCard.addSubview(secretLabel)
@@ -337,35 +484,61 @@ class OnlineGameViewController: UIViewController {
         guessTextField = UITextField()
         submitButton = UIButton(type: .system)
         
-        gameBoardContainer.backgroundColor = UIColor.black.withAlphaComponent(0.3)
-        gameBoardContainer.layer.cornerRadius = 10
-        gameBoardContainer.layer.borderWidth = 1
-        gameBoardContainer.layer.borderColor = UIColor.systemCyan.withAlphaComponent(0.6).cgColor
+        // SpaceX Command Console Style
+        gameBoardContainer.backgroundColor = UIColor(red: 0.06, green: 0.1, blue: 0.16, alpha: 0.95)
+        gameBoardContainer.layer.cornerRadius = 18
+        gameBoardContainer.layer.borderWidth = 2
+        gameBoardContainer.layer.borderColor = UIColor(red: 0.2, green: 0.6, blue: 0.9, alpha: 0.8).cgColor
+        
+        // Add command console glow
+        gameBoardContainer.layer.shadowColor = UIColor(red: 0.2, green: 0.6, blue: 0.9, alpha: 0.4).cgColor
+        gameBoardContainer.layer.shadowOffset = CGSize(width: 0, height: 0)
+        gameBoardContainer.layer.shadowOpacity = 0.8
+        gameBoardContainer.layer.shadowRadius = 10
+        
         gameBoardContainer.translatesAutoresizingMaskIntoConstraints = false
         view.addSubview(gameBoardContainer)
         
-        guessTextField.placeholder = "Use keypad below to enter guess"
-        guessTextField.borderStyle = .roundedRect
+        // SpaceX Display Terminal Style
+        guessTextField.placeholder = "◦ ◦ ◦ ◦"
+        guessTextField.borderStyle = .none
         guessTextField.textAlignment = .center
-        guessTextField.font = UIFont.systemFont(ofSize: 20, weight: .bold)
-        guessTextField.backgroundColor = UIColor.systemGray6
+        guessTextField.font = UIFont(name: "Menlo-Bold", size: 24) ?? UIFont.systemFont(ofSize: 24, weight: .bold)
+        guessTextField.backgroundColor = UIColor(red: 0.02, green: 0.05, blue: 0.12, alpha: 1.0) // Very dark screen
+        guessTextField.textColor = UIColor(red: 0.3, green: 0.9, blue: 0.4, alpha: 1.0) // Matrix green
         guessTextField.translatesAutoresizingMaskIntoConstraints = false
         guessTextField.addTarget(self, action: #selector(guessTextChanged), for: .editingChanged)
         
+        // Terminal screen styling
+        guessTextField.layer.borderWidth = 3
+        guessTextField.layer.borderColor = UIColor(red: 0.1, green: 0.4, blue: 0.7, alpha: 0.8).cgColor
+        guessTextField.layer.cornerRadius = 12
+        
+        // Add screen glow effect
+        guessTextField.layer.shadowColor = UIColor(red: 0.3, green: 0.9, blue: 0.4, alpha: 0.6).cgColor
+        guessTextField.layer.shadowOffset = CGSize(width: 0, height: 0)
+        guessTextField.layer.shadowOpacity = 0.8
+        guessTextField.layer.shadowRadius = 8
+        
         // Disable direct input - keypad only
         guessTextField.isUserInteractionEnabled = false
-        
-        // Style as display field
-        guessTextField.layer.borderWidth = 2
-        guessTextField.layer.borderColor = UIColor.systemBlue.withAlphaComponent(0.6).cgColor
-        guessTextField.layer.cornerRadius = 8
         gameBoardContainer.addSubview(guessTextField)
         
-        submitButton.setTitle("Submit Guess", for: .normal)
-        submitButton.backgroundColor = UIColor.systemGreen.withAlphaComponent(0.8)
+        // SpaceX Launch Button Style
+        submitButton.setTitle("🚀 LAUNCH ATTACK", for: .normal)
+        submitButton.backgroundColor = UIColor(red: 0.9, green: 0.3, blue: 0.1, alpha: 0.9) // SpaceX red-orange
         submitButton.setTitleColor(.white, for: .normal)
-        submitButton.titleLabel?.font = UIFont.boldSystemFont(ofSize: 16)
-        submitButton.layer.cornerRadius = 10
+        submitButton.titleLabel?.font = UIFont(name: "Menlo-Bold", size: 14) ?? UIFont.boldSystemFont(ofSize: 14)
+        submitButton.layer.cornerRadius = 14
+        submitButton.layer.borderWidth = 2
+        submitButton.layer.borderColor = UIColor(red: 1.0, green: 0.4, blue: 0.2, alpha: 1.0).cgColor
+        
+        // Launch button glow
+        submitButton.layer.shadowColor = UIColor(red: 0.9, green: 0.3, blue: 0.1, alpha: 0.8).cgColor
+        submitButton.layer.shadowOffset = CGSize(width: 0, height: 0)
+        submitButton.layer.shadowOpacity = 0.8
+        submitButton.layer.shadowRadius = 6
+        
         submitButton.translatesAutoresizingMaskIntoConstraints = false
         submitButton.addTarget(self, action: #selector(submitGuess), for: .touchUpInside)
         gameBoardContainer.addSubview(submitButton)
@@ -453,38 +626,91 @@ class OnlineGameViewController: UIViewController {
     private func createKeypadButton(number: Int) -> UIButton {
         let button = UIButton(type: .system)
         button.setTitle("\(number)", for: .normal)
-        button.backgroundColor = UIColor.systemBlue.withAlphaComponent(0.7)
-        button.setTitleColor(.white, for: .normal)
-        button.titleLabel?.font = UIFont.systemFont(ofSize: 18, weight: .bold)
-        button.layer.cornerRadius = 15
-        button.layer.borderWidth = 1
-        button.layer.borderColor = UIColor.white.cgColor
+        
+        // SpaceX Control Panel Button Style
+        button.backgroundColor = UIColor(red: 0.08, green: 0.15, blue: 0.25, alpha: 0.9) // Dark space blue
+        button.setTitleColor(UIColor(red: 0.9, green: 0.95, blue: 1.0, alpha: 1.0), for: .normal) // Cool white
+        button.titleLabel?.font = UIFont(name: "Menlo-Bold", size: 20) ?? UIFont.systemFont(ofSize: 20, weight: .bold)
+        button.layer.cornerRadius = 18
+        button.layer.borderWidth = 2
+        button.layer.borderColor = UIColor(red: 0.3, green: 0.6, blue: 0.9, alpha: 0.7).cgColor
+        
+        // Add button glow effect
+        button.layer.shadowColor = UIColor(red: 0.3, green: 0.6, blue: 0.9, alpha: 0.5).cgColor
+        button.layer.shadowOffset = CGSize(width: 0, height: 0)
+        button.layer.shadowOpacity = 0.6
+        button.layer.shadowRadius = 4
+        
+        // Add inner highlight
+        let highlightLayer = CAGradientLayer()
+        highlightLayer.colors = [
+            UIColor(red: 0.4, green: 0.7, blue: 1.0, alpha: 0.3).cgColor,
+            UIColor(red: 0.1, green: 0.2, blue: 0.4, alpha: 0.1).cgColor
+        ]
+        highlightLayer.cornerRadius = 16
+        button.layer.insertSublayer(highlightLayer, at: 0)
+        
         button.tag = number
         button.addTarget(self, action: #selector(keypadNumberTapped(_:)), for: .touchUpInside)
         button.translatesAutoresizingMaskIntoConstraints = false
         
-        let heightConstraint = button.heightAnchor.constraint(equalToConstant: 26)
+        let heightConstraint = button.heightAnchor.constraint(equalToConstant: 36)
         heightConstraint.priority = UILayoutPriority(999)
         heightConstraint.isActive = true
+        
+        // Add touch animation
+        button.addTarget(self, action: #selector(buttonTouchDown(_:)), for: .touchDown)
+        button.addTarget(self, action: #selector(buttonTouchUp(_:)), for: [.touchUpInside, .touchUpOutside])
+        
+        DispatchQueue.main.async {
+            highlightLayer.frame = button.bounds
+        }
         
         return button
     }
     
     private func createClearButton() -> UIButton {
         let button = UIButton(type: .system)
-        button.setTitle("CLEAR", for: .normal)
-        button.backgroundColor = UIColor.systemRed.withAlphaComponent(0.7)
+        button.setTitle("🗑 CLEAR", for: .normal)
+        
+        // SpaceX Emergency/Reset Button Style
+        button.backgroundColor = UIColor(red: 0.8, green: 0.2, blue: 0.1, alpha: 0.9) // Emergency red
         button.setTitleColor(.white, for: .normal)
-        button.titleLabel?.font = UIFont.systemFont(ofSize: 12, weight: .bold)
-        button.layer.cornerRadius = 15
-        button.layer.borderWidth = 1
-        button.layer.borderColor = UIColor.white.cgColor
+        button.titleLabel?.font = UIFont(name: "Menlo-Bold", size: 14) ?? UIFont.systemFont(ofSize: 14, weight: .bold)
+        button.layer.cornerRadius = 18
+        button.layer.borderWidth = 2
+        button.layer.borderColor = UIColor(red: 1.0, green: 0.3, blue: 0.2, alpha: 0.8).cgColor
+        
+        // Emergency button glow
+        button.layer.shadowColor = UIColor(red: 0.8, green: 0.2, blue: 0.1, alpha: 0.7).cgColor
+        button.layer.shadowOffset = CGSize(width: 0, height: 0)
+        button.layer.shadowOpacity = 0.8
+        button.layer.shadowRadius = 6
+        
+        // Warning stripes pattern
+        let stripesLayer = CAShapeLayer()
+        let stripesPath = UIBezierPath()
+        for i in stride(from: -20, to: 60, by: 8) {
+            stripesPath.move(to: CGPoint(x: i, y: 0))
+            stripesPath.addLine(to: CGPoint(x: i + 4, y: 0))
+            stripesPath.addLine(to: CGPoint(x: i + 8, y: 36))
+            stripesPath.addLine(to: CGPoint(x: i + 4, y: 36))
+            stripesPath.close()
+        }
+        stripesLayer.path = stripesPath.cgPath
+        stripesLayer.fillColor = UIColor(red: 1.0, green: 0.4, blue: 0.3, alpha: 0.3).cgColor
+        button.layer.addSublayer(stripesLayer)
+        
         button.addTarget(self, action: #selector(clearTapped), for: .touchUpInside)
         button.translatesAutoresizingMaskIntoConstraints = false
         
-        let heightConstraint = button.heightAnchor.constraint(equalToConstant: 26)
+        let heightConstraint = button.heightAnchor.constraint(equalToConstant: 36)
         heightConstraint.priority = UILayoutPriority(999)
         heightConstraint.isActive = true
+        
+        // Add touch animation
+        button.addTarget(self, action: #selector(buttonTouchDown(_:)), for: .touchDown)
+        button.addTarget(self, action: #selector(buttonTouchUp(_:)), for: [.touchUpInside, .touchUpOutside])
         
         return button
     }
@@ -566,27 +792,34 @@ class OnlineGameViewController: UIViewController {
         
         print("✅ setupHistoryDelayed: All prerequisites met")
         
-        // Create history section card
+        // SpaceX Mission Log Style
         let historyCard = UIView()
-        historyCard.backgroundColor = UIColor.black.withAlphaComponent(0.4)
-        historyCard.layer.cornerRadius = 15
+        historyCard.backgroundColor = UIColor(red: 0.06, green: 0.1, blue: 0.16, alpha: 0.95)
+        historyCard.layer.cornerRadius = 18
         historyCard.layer.borderWidth = 2
-        historyCard.layer.borderColor = UIColor.systemPurple.withAlphaComponent(0.6).cgColor
+        historyCard.layer.borderColor = UIColor(red: 0.2, green: 0.6, blue: 0.9, alpha: 0.8).cgColor
+        
+        // Add SpaceX mission log glow
+        historyCard.layer.shadowColor = UIColor(red: 0.2, green: 0.6, blue: 0.9, alpha: 0.4).cgColor
+        historyCard.layer.shadowOffset = CGSize(width: 0, height: 0)
+        historyCard.layer.shadowOpacity = 0.8
+        historyCard.layer.shadowRadius = 12
+        
         historyCard.translatesAutoresizingMaskIntoConstraints = false
         view.addSubview(historyCard)
         
         let historyLabel = UILabel()
-        historyLabel.text = "📋 GAME HISTORY"
-        historyLabel.font = UIFont.boldSystemFont(ofSize: 18)
-        historyLabel.textColor = .white
+        historyLabel.text = "📡 MISSION LOG • BATTLE DATA"
+        historyLabel.font = UIFont(name: "Menlo-Bold", size: 16) ?? UIFont.boldSystemFont(ofSize: 16)
+        historyLabel.textColor = UIColor(red: 0.3, green: 0.8, blue: 1.0, alpha: 1.0) // SpaceX blue
         historyLabel.textAlignment = .center
         historyLabel.translatesAutoresizingMaskIntoConstraints = false
         
-        // Add shadow effect to title
-        historyLabel.layer.shadowColor = UIColor.black.cgColor
-        historyLabel.layer.shadowOffset = CGSize(width: 1, height: 1)
+        // SpaceX glow effect for mission log title
+        historyLabel.layer.shadowColor = UIColor(red: 0.3, green: 0.7, blue: 1.0, alpha: 1.0).cgColor
+        historyLabel.layer.shadowOffset = CGSize(width: 0, height: 0)
         historyLabel.layer.shadowOpacity = 0.8
-        historyLabel.layer.shadowRadius = 2
+        historyLabel.layer.shadowRadius = 6
         
         historyCard.addSubview(historyLabel)
         
@@ -639,15 +872,64 @@ class OnlineGameViewController: UIViewController {
     private func setupControlButtons() {
         print("🔧 setupControlButtons: Initializing leaveButton...")
         leaveButton = UIButton(type: .system)
-        leaveButton.setTitle("← Leave Game", for: .normal)
-        leaveButton.backgroundColor = UIColor.systemRed.withAlphaComponent(0.7)
+        
+        // SpaceX Abort Mission Button Style
+        leaveButton.setTitle("⚠️ ABORT MISSION", for: .normal)
+        leaveButton.backgroundColor = UIColor(red: 0.7, green: 0.15, blue: 0.05, alpha: 0.9) // Dark emergency red
         leaveButton.setTitleColor(.white, for: .normal)
-        leaveButton.titleLabel?.font = UIFont.boldSystemFont(ofSize: 16)
-        leaveButton.layer.cornerRadius = 10
+        leaveButton.titleLabel?.font = UIFont(name: "Menlo-Bold", size: 14) ?? UIFont.boldSystemFont(ofSize: 14)
+        leaveButton.layer.cornerRadius = 16
+        leaveButton.layer.borderWidth = 2
+        leaveButton.layer.borderColor = UIColor(red: 1.0, green: 0.2, blue: 0.1, alpha: 0.9).cgColor
+        
+        // Emergency abort glow
+        leaveButton.layer.shadowColor = UIColor(red: 0.9, green: 0.2, blue: 0.1, alpha: 0.8).cgColor
+        leaveButton.layer.shadowOffset = CGSize(width: 0, height: 0)
+        leaveButton.layer.shadowOpacity = 0.8
+        leaveButton.layer.shadowRadius = 8
+        
+        // Warning pattern overlay
+        let warningLayer = CAShapeLayer()
+        let warningPath = UIBezierPath()
+        for i in stride(from: -30, to: 150, by: 10) {
+            warningPath.move(to: CGPoint(x: i, y: 0))
+            warningPath.addLine(to: CGPoint(x: i + 5, y: 0))
+            warningPath.addLine(to: CGPoint(x: i + 10, y: 36))
+            warningPath.addLine(to: CGPoint(x: i + 5, y: 36))
+            warningPath.close()
+        }
+        warningLayer.path = warningPath.cgPath
+        warningLayer.fillColor = UIColor(red: 1.0, green: 0.3, blue: 0.2, alpha: 0.2).cgColor
+        leaveButton.layer.addSublayer(warningLayer)
+        
         leaveButton.translatesAutoresizingMaskIntoConstraints = false
         leaveButton.addTarget(self, action: #selector(leaveGame), for: .touchUpInside)
+        
+        // Add touch animation
+        leaveButton.addTarget(self, action: #selector(buttonTouchDown(_:)), for: .touchDown)
+        leaveButton.addTarget(self, action: #selector(buttonTouchUp(_:)), for: [.touchUpInside, .touchUpOutside])
+        
         view.addSubview(leaveButton)
         print("✅ setupControlButtons: leaveButton initialized successfully")
+    }
+    
+    // MARK: - Touch Animation Methods
+    @objc private func buttonTouchDown(_ sender: UIButton) {
+        UIView.animate(withDuration: 0.1, delay: 0, options: [.allowUserInteraction, .curveEaseInOut], animations: {
+            sender.transform = CGAffineTransform(scaleX: 0.95, y: 0.95)
+            sender.alpha = 0.8
+        })
+        
+        // Add haptic feedback
+        let impactFeedback = UIImpactFeedbackGenerator(style: .medium)
+        impactFeedback.impactOccurred()
+    }
+    
+    @objc private func buttonTouchUp(_ sender: UIButton) {
+        UIView.animate(withDuration: 0.2, delay: 0, usingSpringWithDamping: 0.6, initialSpringVelocity: 0.8, options: [.allowUserInteraction, .curveEaseInOut], animations: {
+            sender.transform = CGAffineTransform.identity
+            sender.alpha = 1.0
+        })
     }
     
     private func setupConstraints() {
@@ -710,16 +992,23 @@ class OnlineGameViewController: UIViewController {
     
     func createPlaceholderView() -> UIView {
         let container = UIView()
-        container.backgroundColor = UIColor.systemBlue.withAlphaComponent(0.15)
-        container.layer.cornerRadius = 12
+        container.backgroundColor = UIColor(red: 0.1, green: 0.2, blue: 0.4, alpha: 0.3)
+        container.layer.cornerRadius = 16
         container.layer.borderWidth = 2
-        container.layer.borderColor = UIColor.systemBlue.withAlphaComponent(0.3).cgColor
+        container.layer.borderColor = UIColor(red: 0.3, green: 0.7, blue: 1.0, alpha: 0.5).cgColor
+        
+        // Add SpaceX waiting glow
+        container.layer.shadowColor = UIColor(red: 0.3, green: 0.7, blue: 1.0, alpha: 0.3).cgColor
+        container.layer.shadowOffset = CGSize(width: 0, height: 0)
+        container.layer.shadowOpacity = 0.8
+        container.layer.shadowRadius = 8
+        
         container.translatesAutoresizingMaskIntoConstraints = false
         
         let label = UILabel()
-        label.text = "🎯 Ready to start! Make your first guess to begin the battle!"
-        label.font = UIFont.systemFont(ofSize: 16, weight: .semibold)
-        label.textColor = .white
+        label.text = "🚀 MISSION STANDBY\nAwaiting first attack sequence..."
+        label.font = UIFont(name: "Menlo-Regular", size: 14) ?? UIFont.systemFont(ofSize: 14, weight: .semibold)
+        label.textColor = UIColor(red: 0.9, green: 0.95, blue: 1.0, alpha: 1.0)
         label.textAlignment = .center
         label.numberOfLines = 2
         label.translatesAutoresizingMaskIntoConstraints = false
@@ -746,28 +1035,40 @@ class OnlineGameViewController: UIViewController {
         let container = UIView()
         let isMe = playerName.lowercased().contains("player") && playerName.contains(playerId.suffix(4))
         
-        // Enhanced styling based on player and result
+        // SpaceX Mission Data Entry Styling
         if bulls == digits {
-            // Winner styling - bright and celebratory
-            container.backgroundColor = UIColor.systemGreen.withAlphaComponent(0.3)
-            container.layer.borderColor = UIColor.systemGreen.cgColor
+            // Mission Success - SpaceX Green
+            container.backgroundColor = UIColor(red: 0.2, green: 0.8, blue: 0.3, alpha: 0.3)
+            container.layer.borderColor = UIColor(red: 0.2, green: 0.8, blue: 0.3, alpha: 1.0).cgColor
             container.layer.borderWidth = 3
             
-            // Add winner glow effect
-            container.layer.shadowColor = UIColor.systemGreen.cgColor
+            // Mission success glow
+            container.layer.shadowColor = UIColor(red: 0.2, green: 0.8, blue: 0.3, alpha: 0.8).cgColor
+            container.layer.shadowOffset = CGSize(width: 0, height: 0)
+            container.layer.shadowOpacity = 0.8
+            container.layer.shadowRadius = 10
+        } else if isMe {
+            // Dragon Crew (Your moves) - SpaceX Blue
+            container.backgroundColor = UIColor(red: 0.1, green: 0.3, blue: 0.5, alpha: 0.4)
+            container.layer.borderColor = UIColor(red: 0.3, green: 0.7, blue: 1.0, alpha: 0.9).cgColor
+            container.layer.borderWidth = 2
+            
+            // Your move glow
+            container.layer.shadowColor = UIColor(red: 0.3, green: 0.7, blue: 1.0, alpha: 0.5).cgColor
             container.layer.shadowOffset = CGSize(width: 0, height: 0)
             container.layer.shadowOpacity = 0.6
-            container.layer.shadowRadius = 8
-        } else if isMe {
-            // Player's own moves - blue theme
-            container.backgroundColor = UIColor.systemBlue.withAlphaComponent(0.2)
-            container.layer.borderColor = UIColor.systemBlue.withAlphaComponent(0.8).cgColor
-            container.layer.borderWidth = 2
+            container.layer.shadowRadius = 6
         } else {
-            // Opponent moves - orange theme
-            container.backgroundColor = UIColor.systemOrange.withAlphaComponent(0.2)
-            container.layer.borderColor = UIColor.systemOrange.withAlphaComponent(0.8).cgColor
+            // Enemy Craft (Opponent moves) - Warning Orange
+            container.backgroundColor = UIColor(red: 0.8, green: 0.3, blue: 0.1, alpha: 0.3)
+            container.layer.borderColor = UIColor(red: 1.0, green: 0.4, blue: 0.2, alpha: 0.9).cgColor
             container.layer.borderWidth = 2
+            
+            // Enemy move glow
+            container.layer.shadowColor = UIColor(red: 1.0, green: 0.4, blue: 0.2, alpha: 0.5).cgColor
+            container.layer.shadowOffset = CGSize(width: 0, height: 0)
+            container.layer.shadowOpacity = 0.6
+            container.layer.shadowRadius = 6
         }
         
         container.layer.cornerRadius = 15
@@ -779,17 +1080,17 @@ class OnlineGameViewController: UIViewController {
         stackView.spacing = 4
         stackView.translatesAutoresizingMaskIntoConstraints = false
         
-        // Player and guess info with enhanced styling - Clear text
+        // SpaceX Mission Operator Labels
         let playerLabel = UILabel()
-        playerLabel.text = isMe ? "🎯 You" : "👤 \(playerName)"
-        playerLabel.font = UIFont.systemFont(ofSize: 16, weight: .bold)
+        playerLabel.text = isMe ? "🚀 DRAGON CREW" : "⚠️ ENEMY CRAFT"
+        playerLabel.font = UIFont(name: "Menlo-Bold", size: 14) ?? UIFont.systemFont(ofSize: 14, weight: .bold)
         
         if isMe {
-            playerLabel.textColor = .white
-            playerLabel.layer.shadowColor = UIColor.systemBlue.cgColor
+            playerLabel.textColor = UIColor(red: 0.9, green: 0.95, blue: 1.0, alpha: 1.0) // Cool white
+            playerLabel.layer.shadowColor = UIColor(red: 0.3, green: 0.7, blue: 1.0, alpha: 1.0).cgColor
         } else {
-            playerLabel.textColor = .white
-            playerLabel.layer.shadowColor = UIColor.systemOrange.cgColor
+            playerLabel.textColor = UIColor(red: 0.9, green: 0.95, blue: 1.0, alpha: 1.0)
+            playerLabel.layer.shadowColor = UIColor(red: 1.0, green: 0.4, blue: 0.2, alpha: 1.0).cgColor
         }
         
         // Add text shadow for better visibility
@@ -797,69 +1098,69 @@ class OnlineGameViewController: UIViewController {
         playerLabel.layer.shadowOpacity = 0.8
         playerLabel.layer.shadowRadius = 2
         
-        // Guess with result - enhanced visibility
+        // SpaceX Attack Data Display
         let guessLabel = UILabel()
         let bullsEmoji = String(repeating: "🎯", count: bulls)
-        let cowsEmoji = String(repeating: "🔥", count: cows) // Changed from cow to fire for better visibility
+        let cowsEmoji = String(repeating: "⚡", count: cows) // Lightning for SpaceX theme
         
         if bulls == digits {
-            // Winner!
-            guessLabel.text = "🎉 \(guess) → WINNER! \(bullsEmoji)"
-            guessLabel.textColor = .white
-            guessLabel.font = UIFont.systemFont(ofSize: 18, weight: .heavy)
+            // Mission Accomplished!
+            guessLabel.text = "🏆 TARGET ACQUIRED: \(guess) → MISSION SUCCESS!"
+            guessLabel.textColor = UIColor(red: 0.9, green: 0.95, blue: 1.0, alpha: 1.0)
+            guessLabel.font = UIFont(name: "Menlo-Bold", size: 16) ?? UIFont.systemFont(ofSize: 16, weight: .heavy)
             
-            // Winner text glow
-            guessLabel.layer.shadowColor = UIColor.systemGreen.cgColor
+            // Mission success glow
+            guessLabel.layer.shadowColor = UIColor(red: 0.2, green: 0.8, blue: 0.3, alpha: 1.0).cgColor
             guessLabel.layer.shadowOffset = CGSize(width: 0, height: 0)
             guessLabel.layer.shadowOpacity = 1.0
-            guessLabel.layer.shadowRadius = 4
+            guessLabel.layer.shadowRadius = 8
         } else {
-            // Regular guess with improved formatting
-            var resultText = "\(guess) → "
+            // Attack Analysis with SpaceX terminology
+            var resultText = "ATTACK: \(guess) → "
             if bulls > 0 {
-                resultText += "\(bulls)🎯"
+                resultText += "\(bulls) DIRECT HIT\(bulls > 1 ? "S" : "") 🎯"
             }
             if cows > 0 {
                 if bulls > 0 { resultText += " " }
-                resultText += "\(cows)🔥"
+                resultText += "\(cows) GLANCING HIT\(cows > 1 ? "S" : "") ⚡"
             }
             if bulls == 0 && cows == 0 {
-                resultText += "❌ No match"
+                resultText += "MISS • TARGET EVADED 🛡️"
             }
             
             guessLabel.text = resultText
-            guessLabel.textColor = .white
-            guessLabel.font = UIFont.systemFont(ofSize: 16, weight: .semibold)
+            guessLabel.textColor = UIColor(red: 0.9, green: 0.95, blue: 1.0, alpha: 1.0)
+            guessLabel.font = UIFont(name: "Menlo-Regular", size: 13) ?? UIFont.systemFont(ofSize: 13, weight: .semibold)
             
-            // Add text shadow for visibility
-            guessLabel.layer.shadowColor = UIColor.black.cgColor
-            guessLabel.layer.shadowOffset = CGSize(width: 1, height: 1)
+            // Mission data glow
+            guessLabel.layer.shadowColor = UIColor(red: 0.3, green: 0.7, blue: 1.0, alpha: 0.8).cgColor
+            guessLabel.layer.shadowOffset = CGSize(width: 0, height: 0)
             guessLabel.layer.shadowOpacity = 0.8
-            guessLabel.layer.shadowRadius = 2
+            guessLabel.layer.shadowRadius = 4
         }
         
-        // Explanation for user with better styling
+        // SpaceX Mission Analysis
         let explanationLabel = UILabel()
         if bulls == digits {
-            explanationLabel.text = "🏆 Perfect guess - all digits correct!"
-            explanationLabel.textColor = .white
-            explanationLabel.font = UIFont.systemFont(ofSize: 14, weight: .bold)
+            explanationLabel.text = "🎊 MISSION ACCOMPLISHED • ALL SYSTEMS NOMINAL"
+            explanationLabel.textColor = UIColor(red: 0.9, green: 0.95, blue: 1.0, alpha: 1.0)
+            explanationLabel.font = UIFont(name: "Menlo-Regular", size: 12) ?? UIFont.systemFont(ofSize: 12, weight: .bold)
         } else if bulls > 0 || cows > 0 {
-            var explanation = ""
+            var analysis = "📊 DAMAGE REPORT: "
             if bulls > 0 {
-                explanation += "\(bulls) correct position\(bulls > 1 ? "s" : "")"
+                analysis += "\(bulls) critical hit\(bulls > 1 ? "s" : "") (correct position)"
             }
             if cows > 0 {
-                if bulls > 0 { explanation += ", " }
-                explanation += "\(cows) wrong position\(cows > 1 ? "s" : "")"
+                if bulls > 0 { analysis += " • " }
+                analysis += "\(cows) system damage (wrong position)"
             }
-            explanationLabel.text = "💫 \(explanation)"
-            explanationLabel.textColor = UIColor.white.withAlphaComponent(0.9)
-            explanationLabel.font = UIFont.systemFont(ofSize: 13, weight: .medium)
+            explanationLabel.text = analysis
+            explanationLabel.textColor = UIColor(red: 0.7, green: 0.8, blue: 0.9, alpha: 1.0)
+            explanationLabel.font = UIFont(name: "Menlo-Regular", size: 11) ?? UIFont.systemFont(ofSize: 11, weight: .medium)
         } else {
-            explanationLabel.text = "💭 No digits match the secret number"
-            explanationLabel.textColor = UIColor.white.withAlphaComponent(0.9)
-            explanationLabel.font = UIFont.systemFont(ofSize: 13, weight: .medium)
+            explanationLabel.text = "🔄 TELEMETRY: All attack vectors missed target"
+            explanationLabel.textColor = UIColor(red: 0.7, green: 0.8, blue: 0.9, alpha: 1.0)
+            explanationLabel.font = UIFont(name: "Menlo-Regular", size: 11) ?? UIFont.systemFont(ofSize: 11, weight: .medium)
         }
         
         explanationLabel.numberOfLines = 2

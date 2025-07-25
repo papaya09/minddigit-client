@@ -31,7 +31,7 @@ class OnlineWaitingViewController: UIViewController {
     // Digit Selection UI
     let digitSelectionContainer = UIView()
     private let digitLabel = UILabel()
-    private let digitButtons: [UIButton] = (3...6).map { _ in UIButton(type: .system) }
+    private let digitButtons: [UIButton] = (2...6).map { _ in UIButton(type: .system) } // Changed to 2-6 digits
     
     // Secret Setting UI
     let secretContainer = UIView()
@@ -199,7 +199,7 @@ class OnlineWaitingViewController: UIViewController {
         digitSelectionContainer.addSubview(stackView)
         
         for (index, button) in digitButtons.enumerated() {
-            let digits = index + 1
+            let digits = index + 2  // Start from 2 digits (2,3,4,5,6)
             button.setTitle("\(digits)D", for: .normal)
             button.backgroundColor = UIColor.systemPurple.withAlphaComponent(0.7)
             button.setTitleColor(.white, for: .normal)
@@ -229,18 +229,21 @@ class OnlineWaitingViewController: UIViewController {
         secretContainer.translatesAutoresizingMaskIntoConstraints = false
         view.addSubview(secretContainer)
         
-        secretLabel.text = "🔐 Set Your Secret Number"
+        secretLabel.text = "🔐 Enter Your Secret Number"
         secretLabel.font = UIFont.systemFont(ofSize: 18, weight: .bold)
         secretLabel.textColor = UIColor.systemYellow
         secretLabel.textAlignment = .center
         secretLabel.translatesAutoresizingMaskIntoConstraints = false
         secretContainer.addSubview(secretLabel)
         
-        secretTextField.placeholder = "Enter your secret"
+        secretTextField.placeholder = "Type your secret..."
         secretTextField.backgroundColor = UIColor.white.withAlphaComponent(0.9)
-        secretTextField.layer.cornerRadius = 10
+        secretTextField.layer.cornerRadius = 15
+        secretTextField.layer.borderWidth = 2
+        secretTextField.layer.borderColor = UIColor.systemBlue.cgColor
         secretTextField.textAlignment = .center
-        secretTextField.font = UIFont.systemFont(ofSize: 24, weight: .bold)
+        secretTextField.font = UIFont.systemFont(ofSize: 28, weight: .bold)
+        secretTextField.textColor = UIColor.systemBlue
         secretTextField.keyboardType = .numberPad
         secretTextField.delegate = self
         secretTextField.translatesAutoresizingMaskIntoConstraints = false
@@ -254,6 +257,7 @@ class OnlineWaitingViewController: UIViewController {
         secretHintLabel.font = UIFont.systemFont(ofSize: 14, weight: .regular)
         secretHintLabel.textColor = UIColor.systemCyan.withAlphaComponent(0.8)
         secretHintLabel.textAlignment = .center
+        secretHintLabel.numberOfLines = 2
         secretHintLabel.translatesAutoresizingMaskIntoConstraints = false
         secretContainer.addSubview(secretHintLabel)
         
@@ -264,12 +268,12 @@ class OnlineWaitingViewController: UIViewController {
             
             secretTextField.topAnchor.constraint(equalTo: secretLabel.bottomAnchor, constant: 15),
             secretTextField.centerXAnchor.constraint(equalTo: secretContainer.centerXAnchor),
-            secretTextField.widthAnchor.constraint(equalToConstant: 200),
-            secretTextField.heightAnchor.constraint(equalToConstant: 50),
+            secretTextField.widthAnchor.constraint(equalToConstant: 250),
+            secretTextField.heightAnchor.constraint(equalToConstant: 60),
             
-            secretHintLabel.topAnchor.constraint(equalTo: secretTextField.bottomAnchor, constant: 10),
-            secretHintLabel.leadingAnchor.constraint(equalTo: secretContainer.leadingAnchor),
-            secretHintLabel.trailingAnchor.constraint(equalTo: secretContainer.trailingAnchor),
+            secretHintLabel.topAnchor.constraint(equalTo: secretTextField.bottomAnchor, constant: 15),
+            secretHintLabel.leadingAnchor.constraint(equalTo: secretContainer.leadingAnchor, constant: 20),
+            secretHintLabel.trailingAnchor.constraint(equalTo: secretContainer.trailingAnchor, constant: -20),
             secretHintLabel.bottomAnchor.constraint(equalTo: secretContainer.bottomAnchor)
         ])
     }
@@ -406,7 +410,7 @@ class OnlineWaitingViewController: UIViewController {
         let selectedDigits = sender.tag
         currentDigits = selectedDigits
         
-        // Update UI
+        // Update UI to show selection
         digitButtons.forEach { button in
             if button.tag == selectedDigits {
                 button.backgroundColor = UIColor.systemGreen
@@ -419,12 +423,15 @@ class OnlineWaitingViewController: UIViewController {
             }
         }
         
-        // Send selection to server
-        selectDigits(currentDigits)
+        // Show that selection can be confirmed
+        actionButton.isEnabled = true
+        actionButton.setTitle("Confirm \(selectedDigits) Digits", for: .normal)
         
         // Haptic feedback
         let impactFeedback = UIImpactFeedbackGenerator(style: .medium)
         impactFeedback.impactOccurred()
+        
+        print("🎯 Digit selection changed to: \(selectedDigits)")
     }
     
     // MARK: - Game Transition
@@ -455,6 +462,12 @@ class OnlineWaitingViewController: UIViewController {
     
     private func confirmDigitSelection() {
         print("🎯 Confirming digit selection: \(currentDigits)")
+        
+        // Show loading state
+        actionButton.isEnabled = false
+        actionButton.setTitle("Confirming...", for: .normal)
+        loadingSpinner.startAnimating()
+        
         selectDigits(currentDigits)
     }
     
@@ -465,10 +478,44 @@ class OnlineWaitingViewController: UIViewController {
             return
         }
         
-        print("🔐 Setting secret number: \(secretText)")
+        // Validate the secret
+        let isCorrectLength = secretText.count == currentDigits
+        let hasUniqueDigits = Set(secretText).count == secretText.count
+        let isAllNumbers = secretText.allSatisfy { $0.isNumber }
+        
+        guard isCorrectLength && hasUniqueDigits && isAllNumbers else {
+            if !isAllNumbers {
+                showError("Secret must contain only numbers")
+            } else if !isCorrectLength {
+                showError("Secret must be exactly \(currentDigits) digits")
+            } else if !hasUniqueDigits {
+                showError("All digits in secret must be unique (no duplicates)")
+            }
+            return
+        }
+        
+        print("🔐 Setting secret number: \(secretText) (\(currentDigits) digits)")
+        
         // Store the secret for later use
         UserDefaults.standard.set(secretText, forKey: "currentSecret")
-        setSecret()
+        
+        // Show user confirmation
+        let alert = UIAlertController(
+            title: "Confirm Secret", 
+            message: "Your secret number is: \(secretText)\n\nIs this correct?", 
+            preferredStyle: .alert
+        )
+        
+        alert.addAction(UIAlertAction(title: "✅ Yes, Set It", style: .default) { [weak self] _ in
+            self?.setSecret()
+        })
+        
+        alert.addAction(UIAlertAction(title: "❌ Change It", style: .cancel) { [weak self] _ in
+            // Allow user to edit again
+            self?.secretTextField.becomeFirstResponder()
+        })
+        
+        present(alert, animated: true)
     }
     
     private func backToMenu() {
@@ -505,12 +552,35 @@ class OnlineWaitingViewController: UIViewController {
                 
             case "DIGIT_SELECTION":
                 print("🔢 Showing digit selection UI")
-                self.statusLabel.text = "🎯 Choose number of digits"
-                self.statusLabel.textColor = .systemOrange
+                self.statusLabel.text = "🔢 Choose number of digits"
+                self.statusLabel.textColor = .systemBlue
                 self.digitSelectionContainer.isHidden = false
                 self.actionButton.isHidden = false
-                self.actionButton.setTitle("Confirm Digits", for: .normal)
-                self.actionButton.backgroundColor = .systemOrange
+                self.actionButton.setTitle("Select Digits First", for: .normal)
+                self.actionButton.backgroundColor = .systemGray
+                self.actionButton.isEnabled = false
+                
+                // Set default selection to 4 digits
+                self.currentDigits = 4
+                
+                // Update button styling after UI is loaded
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+                    self.digitButtons.forEach { button in
+                        if button.tag == 4 {
+                            button.backgroundColor = UIColor.systemGreen
+                            button.layer.borderColor = UIColor.systemYellow.cgColor
+                            button.layer.borderWidth = 3
+                            // Enable the confirm button
+                            self.actionButton.setTitle("Confirm 4 Digits", for: .normal)
+                            self.actionButton.backgroundColor = .systemBlue
+                            self.actionButton.isEnabled = true
+                        } else {
+                            button.backgroundColor = UIColor.systemPurple.withAlphaComponent(0.7)
+                            button.layer.borderColor = UIColor.white.cgColor
+                            button.layer.borderWidth = 2
+                        }
+                    }
+                }
                 
             case "SECRET_SETTING":
                 print("🔐 Showing secret setting UI")
@@ -520,13 +590,23 @@ class OnlineWaitingViewController: UIViewController {
                 self.actionButton.isHidden = false
                 self.actionButton.setTitle("Set Secret", for: .normal)
                 self.actionButton.backgroundColor = .systemPurple
+                self.actionButton.isEnabled = false // Disabled until valid input
+                
+                // Update UI based on selected digits
+                self.updateSecretUIForDigits(self.currentDigits)
+                
+                // Clear previous input
+                self.secretTextField.text = ""
+                self.secretTextField.isEnabled = true
                 
             case "PLAYING":
                 print("🎮 Transitioning to game screen")
-                self.statusLabel.text = "🎮 Game started! Make your guesses"
+                self.statusLabel.text = "🎮 Game started! Let the battle begin!"
                 self.statusLabel.textColor = .systemGreen
                 // Transition to game screen
-                self.transitionToGameScreen()
+                DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
+                    self.transitionToGameScreen()
+                }
                 
             case "FINISHED":
                 self.statusLabel.text = "🏆 Game completed!"
@@ -566,6 +646,48 @@ class OnlineWaitingViewController: UIViewController {
             }
         }
     }
+    
+    // MARK: - Secret UI Updates
+    private func updateSecretUIForDigits(_ digits: Int) {
+        // Generate example numbers
+        let exampleNumbers = generateExampleNumbers(for: digits)
+        
+        // Update placeholder based on digits
+        let placeholderDots = String(repeating: "●", count: digits)
+        secretTextField.placeholder = placeholderDots
+        
+        // Update hint text with clear instructions
+        secretHintLabel.text = """
+        Enter \(digits) unique digits of your choice
+        Examples: \(exampleNumbers.joined(separator: ", "))
+        """
+        
+        // Update text field max length
+        if let text = secretTextField.text {
+            if text.count > digits {
+                secretTextField.text = String(text.prefix(digits))
+            }
+        }
+        
+        print("🔐 Updated secret UI for \(digits) digits")
+    }
+    
+    private func generateExampleNumbers(for digits: Int) -> [String] {
+        switch digits {
+        case 2:
+            return ["12", "34", "56", "78"]
+        case 3:
+            return ["123", "456", "789"]
+        case 4:
+            return ["1234", "5678", "9012"]
+        case 5:
+            return ["12345", "67890", "13579"]
+        case 6:
+            return ["123456", "789012", "135790"]
+        default:
+            return ["1234"]
+        }
+    }
 }
 
 // MARK: - UITextFieldDelegate
@@ -590,27 +712,9 @@ extension OnlineWaitingViewController: UITextFieldDelegate {
             return false
         }
         
-        // Update hint label based on current digits
+        // Update validation and UI immediately
         DispatchQueue.main.async {
-            if updatedText.count == self.currentDigits {
-                // Check for unique digits
-                let uniqueDigits = Set(updatedText)
-                if uniqueDigits.count == updatedText.count {
-                    self.secretHintLabel.text = "✅ Perfect! \(self.currentDigits) unique digits"
-                    self.secretHintLabel.textColor = .systemGreen
-                    
-                    // Auto-submit after a short delay
-                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
-                        self.dismissKeyboard()
-                    }
-                } else {
-                    self.secretHintLabel.text = "❌ All digits must be unique"
-                    self.secretHintLabel.textColor = .systemRed
-                }
-            } else {
-                self.secretHintLabel.text = "Enter \(self.currentDigits) unique digits (\(updatedText.count)/\(self.currentDigits))"
-                self.secretHintLabel.textColor = UIColor.systemCyan.withAlphaComponent(0.8)
-            }
+            self.validateSecretInput(updatedText)
         }
         
         return true
@@ -619,5 +723,66 @@ extension OnlineWaitingViewController: UITextFieldDelegate {
     func textFieldShouldReturn(_ textField: UITextField) -> Bool {
         textField.resignFirstResponder()
         return true
+    }
+    
+    // MARK: - Secret Validation
+    private func validateSecretInput(_ input: String) {
+        let isCorrectLength = input.count == currentDigits
+        let hasUniqueDigits = Set(input).count == input.count
+        let isAllNumbers = input.allSatisfy { $0.isNumber }
+        
+        // Update visual feedback
+        if input.isEmpty {
+            // Reset state
+            secretTextField.layer.borderColor = UIColor.systemBlue.cgColor
+            secretHintLabel.textColor = UIColor.systemCyan.withAlphaComponent(0.8)
+            secretHintLabel.text = """
+            Enter \(currentDigits) unique digits of your choice
+            Examples: \(generateExampleNumbers(for: currentDigits).joined(separator: ", "))
+            """
+            actionButton.isEnabled = false
+            actionButton.setTitle("Set Secret", for: .normal)
+            
+        } else if !isAllNumbers {
+            // Invalid: not all numbers
+            secretTextField.layer.borderColor = UIColor.systemRed.cgColor
+            secretHintLabel.textColor = UIColor.systemRed
+            secretHintLabel.text = "❌ Only numbers are allowed"
+            actionButton.isEnabled = false
+            actionButton.setTitle("Invalid Input", for: .normal)
+            
+        } else if input.count < currentDigits {
+            // Incomplete input
+            secretTextField.layer.borderColor = UIColor.systemOrange.cgColor
+            secretHintLabel.textColor = UIColor.systemOrange
+            if hasUniqueDigits {
+                secretHintLabel.text = "⚠️ Enter \(currentDigits - input.count) more digit\(currentDigits - input.count > 1 ? "s" : "") (\(input.count)/\(currentDigits))"
+            } else {
+                secretHintLabel.text = "❌ All digits must be unique (\(input.count)/\(currentDigits))"
+            }
+            actionButton.isEnabled = false
+            actionButton.setTitle("Need \(currentDigits - input.count) More", for: .normal)
+            
+        } else if isCorrectLength && !hasUniqueDigits {
+            // Correct length but duplicate digits
+            secretTextField.layer.borderColor = UIColor.systemRed.cgColor
+            secretHintLabel.textColor = UIColor.systemRed
+            secretHintLabel.text = "❌ All \(currentDigits) digits must be unique (no duplicates)"
+            actionButton.isEnabled = false
+            actionButton.setTitle("Duplicates Found", for: .normal)
+            
+        } else if isCorrectLength && hasUniqueDigits && isAllNumbers {
+            // Perfect input!
+            secretTextField.layer.borderColor = UIColor.systemGreen.cgColor
+            secretHintLabel.textColor = UIColor.systemGreen
+            secretHintLabel.text = "✅ Perfect! Your secret: \(input)"
+            actionButton.isEnabled = true
+            actionButton.setTitle("✅ Set Secret", for: .normal)
+            actionButton.backgroundColor = UIColor.systemGreen
+            
+            // Auto-submit after a short delay with haptic feedback
+            let impactFeedback = UIImpactFeedbackGenerator(style: .light)
+            impactFeedback.impactOccurred()
+        }
     }
 }

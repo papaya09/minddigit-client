@@ -96,6 +96,18 @@ extension OnlineGameViewController {
         
         guard let guess = guessTextField.text, !guess.isEmpty else { return }
         
+        // Immediate visual feedback - disable controls
+        submitButton.isEnabled = false
+        submitButton.setTitle("🚀 LAUNCHING...", for: .normal)
+        updateKeypadButtonsState() // Disable keypad
+        
+        // Visual feedback - pulsing effect
+        UIView.animate(withDuration: 0.3, delay: 0, options: [.repeat, .autoreverse], animations: {
+            self.guessTextField.alpha = 0.7
+        }) { _ in
+            self.guessTextField.alpha = 1.0
+        }
+        
         let url = URL(string: "\(baseURL)/game/guess-local")!
         var request = URLRequest(url: url)
         request.httpMethod = "POST"
@@ -111,6 +123,7 @@ extension OnlineGameViewController {
             request.httpBody = try JSONSerialization.data(withJSONObject: body)
         } catch {
             print("❌ Error creating request: \(error)")
+            resetSubmitButtonState()
             return
         }
         
@@ -119,13 +132,27 @@ extension OnlineGameViewController {
         URLSession.shared.dataTask(with: request) { [weak self] data, response, error in
             guard let self = self else { return }
             
+            DispatchQueue.main.async {
+                // Stop pulsing animation
+                self.guessTextField.layer.removeAllAnimations()
+                self.guessTextField.alpha = 1.0
+            }
+            
             if let error = error {
                 print("❌ Network error submitting guess: \(error)")
+                DispatchQueue.main.async {
+                    self.resetSubmitButtonState()
+                    self.showNetworkError("Failed to submit guess. Please try again.")
+                }
                 return
             }
             
             guard let data = data else {
                 print("❌ No data received")
+                DispatchQueue.main.async {
+                    self.resetSubmitButtonState()
+                    self.showNetworkError("No response from server.")
+                }
                 return
             }
             
@@ -141,35 +168,80 @@ extension OnlineGameViewController {
                         DispatchQueue.main.async {
                             print("🎯 \(guess): \(bulls)B \(cows)C")
                             
+                            // Immediate feedback - show result briefly
+                            self.submitButton.setTitle("✅ \(bulls)B \(cows)C", for: .normal)
+                            
                             // Clear the guess field
                             self.guessTextField.text = ""
-                            self.guessTextChanged() // Update button state
+                            
+                            // Update turn immediately (opponent's turn)
+                            if let newCurrentTurn = json["currentTurn"] as? String {
+                                self.currentTurn = newCurrentTurn
+                                self.isMyTurn = (self.currentTurn == self.playerId)
+                                print("🔄 Turn switched to: \(newCurrentTurn), isMyTurn: \(self.isMyTurn)")
+                            }
                             
                             // Check for win condition immediately
                             if let isCorrect = result["isCorrect"] as? Int, isCorrect == 1 {
                                 print("🎉 WIN DETECTED! You guessed correctly!")
-                                // Delay to allow history update
-                                DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+                                self.submitButton.setTitle("🏆 YOU WON!", for: .normal)
+                                DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
                                     self.showGameOverAlert(won: true)
                                 }
                             } else if bulls == self.digits {
                                 print("🎉 WIN DETECTED by bulls count!")
-                                DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+                                self.submitButton.setTitle("🏆 YOU WON!", for: .normal)
+                                DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
                                     self.showGameOverAlert(won: true)
+                                }
+                            } else {
+                                // Not a win, update UI for opponent's turn
+                                DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
+                                    self.updateTurnUI()
                                 }
                             }
                             
-                            // Update history immediately
-                            self.updateHistory()
+                            // Immediate history and state sync for real-time feel
+                            DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+                                self.fetchGameHistory() // Get updated history immediately
+                                self.fetchGameState()   // Sync game state
+                            }
+                        }
+                    } else {
+                        print("❌ Server returned error: \(json)")
+                        DispatchQueue.main.async {
+                            self.resetSubmitButtonState()
+                            let errorMessage = json["error"] as? String ?? "Unknown server error"
+                            self.showNetworkError(errorMessage)
                         }
                     }
                 } else {
                     print("❌ Invalid guess response format")
+                    DispatchQueue.main.async {
+                        self.resetSubmitButtonState()
+                        self.showNetworkError("Invalid response from server.")
+                    }
                 }
             } catch {
                 print("❌ Error parsing guess response: \(error)")
+                DispatchQueue.main.async {
+                    self.resetSubmitButtonState()
+                    self.showNetworkError("Failed to parse server response.")
+                }
             }
         }.resume()
+    }
+    
+    private func resetSubmitButtonState() {
+        submitButton.setTitle("🚀 LAUNCH ATTACK", for: .normal)
+        submitButton.isEnabled = isMyTurn && (guessTextField.text?.count == digits)
+        updateKeypadButtonsState()
+    }
+    
+    private func showNetworkError(_ message: String) {
+        let alert = UIAlertController(title: "Network Error", message: message, preferredStyle: .alert)
+        alert.addAction(UIAlertAction(title: "OK", style: .default))
+        present(alert, animated: true)
     }
     
     @objc func leaveGame() {
