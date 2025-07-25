@@ -4,8 +4,12 @@ import UIKit
 extension OnlineGameViewController {
     
     @objc func keypadNumberTapped(_ sender: UIButton) {
-        // Only allow input when it's my turn
-        guard isMyTurn else {
+        print("🔢 Keypad tapped: \(sender.tag), isMyTurn: \(isMyTurn), gameState: \(gameState)")
+        
+        // Allow input in continue guessing mode OR when it's my turn
+        if gameState == "CONTINUE_GUESSING" {
+            print("✅ Continue guessing mode - allowing input")
+        } else if !isMyTurn {
             print("❌ Keypad blocked: Not your turn")
             // Visual feedback for blocked tap
             sender.transform = CGAffineTransform(scaleX: 0.9, y: 0.9)
@@ -50,7 +54,8 @@ extension OnlineGameViewController {
     }
     
     @objc func clearTapped() {
-        guard isMyTurn else {
+        // Allow clear in continue guessing mode OR when it's my turn
+        guard isMyTurn || gameState == "CONTINUE_GUESSING" else {
             print("❌ Clear blocked: Not your turn")
             return
         }
@@ -76,50 +81,56 @@ extension OnlineGameViewController {
         let currentGuess = guessTextField.text ?? ""
         let isValidLength = (currentGuess.count == digits)
         
-        // Enable submit button only if valid length AND it's my turn
-        submitButton.isEnabled = isValidLength && isMyTurn
-        submitButton.alpha = (isValidLength && isMyTurn) ? 1.0 : 0.5
+        // In continue guessing mode, always allow submission when valid length
+        if gameState == "CONTINUE_GUESSING" {
+            submitButton.isEnabled = isValidLength
+            submitButton.alpha = isValidLength ? 1.0 : 0.5
+        } else {
+            // Normal mode: Enable submit button only if valid length AND it's my turn
+            submitButton.isEnabled = isValidLength && isMyTurn
+            submitButton.alpha = (isValidLength && isMyTurn) ? 1.0 : 0.5
+        }
         
-        print("🔤 Guess text changed: '\(currentGuess)' (\(currentGuess.count)/\(digits)) - Valid: \(isValidLength), MyTurn: \(isMyTurn)")
+        print("🔤 Guess text changed: '\(currentGuess)' (\(currentGuess.count)/\(digits)) - Valid: \(isValidLength), MyTurn: \(isMyTurn), Mode: \(gameState)")
         print("🎯 Submit button updated: enabled=\(submitButton.isEnabled), alpha=\(submitButton.alpha)")
     }
     
     @objc func submitGuess() {
-        // 🔒 SAFETY CHECKS: Ensure UI elements exist
-        guard let guessTextField = self.guessTextField,
-              let submitButton = self.submitButton else {
-            print("⚠️ UI elements not ready for guess submission")
-            return
+        print("🚀 Submit guess triggered - gameState: \(gameState), isMyTurn: \(isMyTurn)")
+        print("🚀 Current guess text: '\(guessTextField.text ?? "")'")
+        
+        // In continue guessing mode, skip turn checking
+        if gameState != "CONTINUE_GUESSING" {
+            guard isMyTurn else {
+                print("❌ Submit blocked: Not your turn in normal mode")
+                let alert = UIAlertController(title: "Not Your Turn", 
+                                            message: "Please wait for your turn", 
+                                            preferredStyle: .alert)
+                alert.addAction(UIAlertAction(title: "OK", style: .default))
+                present(alert, animated: true)
+                return
+            }
         }
         
-        guard isMyTurn else {
-            print("⚠️ Not player's turn")
-            let alert = UIAlertController(title: "Not Your Turn", 
-                                        message: "Please wait for your turn", 
-                                        preferredStyle: .alert)
-            alert.addAction(UIAlertAction(title: "OK", style: .default))
-            present(alert, animated: true)
-            return
+        guard let guess = guessTextField.text, !guess.isEmpty else { 
+            print("❌ Submit blocked: Empty guess")
+            return 
         }
         
-        guard let guess = guessTextField.text, !guess.isEmpty else {
-            print("⚠️ Empty guess text")
-            return
+        print("✅ Proceeding with guess: '\(guess)'")
+        
+        if gameState == "CONTINUE_GUESSING" {
+            print("🎯 Handling continue guessing mode")
+            // Handle continue guessing mode specially
+            handleContinueGuessing(guess: guess)
+        } else {
+            print("🎮 Handling normal game mode")
+            // 🚀 OPTIMISTIC UPDATE: Update UI immediately for smooth experience
+            performOptimisticGuessUpdate(guess: guess)
+            
+            // Then sync with server in background
+            submitGuessToServer(guess: guess)
         }
-        
-        // 🔒 VALIDATE GUESS FORMAT
-        guard guess.count == digits else {
-            print("⚠️ Invalid guess length: \(guess.count) != \(digits)")
-            return
-        }
-        
-        print("🎯 Submitting valid guess: '\(guess)'")
-        
-        // 🚀 OPTIMISTIC UPDATE: Update UI immediately for smooth experience
-        performOptimisticGuessUpdate(guess: guess)
-        
-        // Then sync with server in background
-        submitGuessToServer(guess: guess)
     }
     
     // MARK: - Optimistic Updates for Ultra-Smooth UX
@@ -127,25 +138,18 @@ extension OnlineGameViewController {
     private func performOptimisticGuessUpdate(guess: String) {
         print("⚡ Optimistic update: guess '\(guess)'")
         
-        // 🔒 SAFETY: Ensure UI elements exist before updating
-        guard let submitButton = self.submitButton,
-              let guessTextField = self.guessTextField else {
-            print("⚠️ UI elements not available for optimistic update")
-            return
-        }
-        
         // 1. Immediate visual feedback
         submitButton.isEnabled = false
         submitButton.setTitle("🚀 SENDING...", for: .normal)
         
         // 2. Visual feedback with subtle animation
         UIView.animate(withDuration: 0.2, animations: {
-            guessTextField.alpha = 0.8
-            submitButton.transform = CGAffineTransform(scaleX: 0.95, y: 0.95)
+            self.guessTextField.alpha = 0.8
+            self.submitButton.transform = CGAffineTransform(scaleX: 0.95, y: 0.95)
         }) { _ in
             UIView.animate(withDuration: 0.2) {
-                guessTextField.alpha = 1.0
-                submitButton.transform = CGAffineTransform.identity
+                self.guessTextField.alpha = 1.0
+                self.submitButton.transform = CGAffineTransform.identity
             }
         }
         
@@ -235,12 +239,9 @@ extension OnlineGameViewController {
                             print("🎯 Server rejected: \(json["error"] as? String ?? "Unknown")")
                             self.handleGuessSubmissionSilently(success: false, guess: guess)
                         }
-                    } else {
-                        print("🎯 Invalid JSON format")
-                        self.handleGuessSubmissionSilently(success: false, guess: guess)
                     }
                 } catch {
-                    print("🎯 JSON parse error: \(error.localizedDescription)")
+                    print("🎯 Parse error: \(error)")
                     self.handleGuessSubmissionSilently(success: false, guess: guess)
                 }
             }
@@ -279,170 +280,77 @@ extension OnlineGameViewController {
         // Clear optimistic update (it was successful)
         pendingOptimisticUpdates.removeValue(forKey: "guess")
         
-        // 🔒 SAFETY: Basic result processing with extensive safety checks
-        guard let result = json["result"] as? [String: Any] else {
-            print("⚠️ No result object in response")
-            backgroundSync()
-            return
-        }
-        
-        let bulls = result["bulls"] as? Int ?? 0
-        let cows = result["cows"] as? Int ?? 0
-        let isCorrect = result["isCorrect"] as? Int ?? 0
-        
-        // Show result on button
-        DispatchQueue.main.async {
-            self.submitButton.setTitle("✅ \(bulls)B \(cows)C", for: .normal)
-        }
-        
-        // 🎯 SIMPLIFIED WIN HANDLING
-        if isCorrect == 1 {
-            DispatchQueue.main.async {
-                self.submitButton.setTitle("🏆 CORRECT!", for: .normal)
+        // Process actual server result
+        if let result = json["result"] as? [String: Any],
+           let bulls = result["bulls"] as? Int,
+           let cows = result["cows"] as? Int {
+            
+            // Show actual result
+            submitButton.setTitle("✅ \(bulls)B \(cows)C", for: .normal)
+            
+            // Update turn with server data
+            if let newCurrentTurn = json["currentTurn"] as? String {
+                currentTurn = newCurrentTurn
+                // Don't update isMyTurn in continue guessing mode
+                if gameState != "CONTINUE_GUESSING" {
+                    isMyTurn = (currentTurn == playerId)
+                } else {
+                    print("🎯 PROTECTED: Not updating isMyTurn in continue guessing mode (handleSuccessfulGuessSubmission)")
+                }
             }
             
-            // Check for practice mode safely
-            if let gameState = json["gameState"] as? String,
-               gameState == "WINNER_ANNOUNCED" {
-                
-                if let winner = json["winner"] as? [String: Any],
-                   let winnerId = winner["playerId"] as? String,
-                   winnerId != playerId {
-                    // Practice mode completion
-                    print("🎯 Practice mode completion detected")
-                    DispatchQueue.main.async {
-                        self.submitButton.setTitle("🎯 SECRET FOUND!", for: .normal)
+            // Check for win condition or continue guessing success
+            if let isCorrect = result["isCorrect"] as? Int, isCorrect == 1 {
+                if gameState == "CONTINUE_GUESSING" {
+                    // Successfully decoded enemy secret in continue mode
+                    submitButton.setTitle("🎯 SECRET DECODED!", for: .normal)
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
+                        self.showContinueGuessingSuccessModal()
                     }
-                    handlePracticeCompletion(discoveredSecret: guess)
-                    return
+                } else {
+                    // Normal game win - I won!
+                    submitButton.setTitle("🏆 YOU WON!", for: .normal)
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
+                        self.showGameOverAlert(won: true)
+                    }
+                }
+            } else if bulls == digits {
+                if gameState == "CONTINUE_GUESSING" {
+                    // Successfully decoded enemy secret in continue mode
+                    submitButton.setTitle("🎯 SECRET DECODED!", for: .normal)
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
+                        self.showContinueGuessingSuccessModal()
+                    }
+                } else {
+                    // Normal game win - I won!
+                    submitButton.setTitle("🏆 YOU WON!", for: .normal)
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
+                        self.showGameOverAlert(won: true)
+                    }
+                }
+            } else {
+                // Continue guessing or normal turn
+                if gameState == "CONTINUE_GUESSING" {
+                    // Update UI for next guess in continue mode
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) {
+                        self.resetContinueGuessingButtonState()
+                        // Don't call updateTurnUI() - resetContinueGuessingButtonState() handles it
+                    }
+                } else {
+                    // Update UI for next turn in normal game
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) {
+                        self.resetSubmitButtonState()
+                        self.updateTurnUI()
+                    }
                 }
             }
             
-            print("🏆 Normal victory detected")
-        }
-        
-        // 🔒 SAFE TURN UPDATE
-        if let newCurrentTurn = json["currentTurn"] as? String {
-            currentTurn = newCurrentTurn
-            isMyTurn = (currentTurn == playerId)
-            print("🔄 Turn updated to: \(newCurrentTurn)")
-        }
-        
-        // Reset button after delay
-        DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) {
-            self.resetSubmitButtonState()
-            self.updateTurnUI()
-        }
-        
-        // Always trigger background sync for latest data
-        backgroundSync()
-    }
-    
-    private func handlePracticeCompletion(discoveredSecret: String) {
-        print("🎯 Practice completion started for secret: \(discoveredSecret)")
-        
-        // Notify server about practice completion
-        let url = URL(string: "\(baseURL)/game/practice-complete-local")!
-        var request = URLRequest(url: url)
-        request.httpMethod = "POST"
-        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        
-        let body = [
-            "roomId": roomId,
-            "playerId": playerId,
-            "discoveredSecret": discoveredSecret
-        ]
-        
-        do {
-            request.httpBody = try JSONSerialization.data(withJSONObject: body)
-        } catch {
-            print("❌ Error creating practice completion request: \(error)")
-            return
-        }
-        
-        sharedURLSession.dataTask(with: request) { [weak self] data, response, error in
-            DispatchQueue.main.async {
-                if let error = error {
-                    print("❌ Practice completion failed: \(error)")
-                    return
-                }
-                
-                print("🎯 Practice completion confirmed")
-                self?.showPracticeCompletionUI()
-            }
-        }.resume()
-    }
-    
-    private func showPracticeCompletionUI() {
-        // 🔒 SAFETY CHECK: Ensure we're on main thread and view exists
-        guard Thread.isMainThread else {
-            DispatchQueue.main.async {
-                self.showPracticeCompletionUI()
-            }
-            return
-        }
-        
-        guard let view = self.view else {
-            print("⚠️ View not available for practice completion UI")
-            return
-        }
-        
-        // Update practice panel to show "PLAY AGAIN" button
-        if let practicePanel = view.subviews.first(where: { $0.accessibilityIdentifier == "practice-panel" }) {
-            print("🎯 Found practice panel, updating UI")
+            // Trigger immediate background sync for latest data
+            backgroundSync()
             
-            // Find and show play again button
-            for subview in practicePanel.subviews {
-                if let button = subview as? UIButton {
-                    button.isHidden = false
-                    print("🎯 Enabled play again button")
-                    break
-                }
-            }
-            
-            // Update subtitle if found
-            let labels = practicePanel.subviews.compactMap { $0 as? UILabel }
-            if labels.count >= 2 {
-                labels[1].text = "🎉 Secret discovered! Ready for rematch?"
-                print("🎯 Updated subtitle text")
-            }
         } else {
-            print("⚠️ Practice panel not found - creating simple completion message")
-            // Create simple completion message instead of trying to update non-existent panel
-            showSimpleCompletionMessage()
-        }
-        
-        // Disable further guessing
-        guessTextField.isEnabled = false
-        submitButton.isEnabled = false
-        updateKeypadButtonsState()
-    }
-    
-    private func showSimpleCompletionMessage() {
-        // Simple fallback UI for practice completion
-        let completionLabel = UILabel()
-        completionLabel.text = "🎉 Secret discovered!"
-        completionLabel.textAlignment = .center
-        completionLabel.backgroundColor = UIColor.systemGreen.withAlphaComponent(0.8)
-        completionLabel.textColor = .white
-        completionLabel.font = UIFont.boldSystemFont(ofSize: 16)
-        completionLabel.layer.cornerRadius = 8
-        completionLabel.clipsToBounds = true
-        completionLabel.accessibilityIdentifier = "simple-completion"
-        
-        view.addSubview(completionLabel)
-        completionLabel.translatesAutoresizingMaskIntoConstraints = false
-        
-        NSLayoutConstraint.activate([
-            completionLabel.centerXAnchor.constraint(equalTo: view.centerXAnchor),
-            completionLabel.topAnchor.constraint(equalTo: guessTextField.bottomAnchor, constant: 20),
-            completionLabel.widthAnchor.constraint(equalToConstant: 200),
-            completionLabel.heightAnchor.constraint(equalToConstant: 40)
-        ])
-        
-        // Auto-hide after 3 seconds
-        DispatchQueue.main.asyncAfter(deadline: .now() + 3.0) {
-            completionLabel.removeFromSuperview()
+            print("❌ Invalid result format from server")
+            rollbackOptimisticUpdate(type: "guess")
         }
     }
     
@@ -484,5 +392,237 @@ extension OnlineGameViewController {
         
         alert.addAction(UIAlertAction(title: "Cancel", style: .cancel))
         present(alert, animated: true)
+    }
+    
+    // MARK: - Continue Guessing Mode
+    
+    private func handleContinueGuessing(guess: String) {
+        print("🎯 Continue guessing mode: analyzing guess '\(guess)' locally")
+        
+        // Immediate visual feedback
+        submitButton.isEnabled = false
+        submitButton.setTitle("🔍 ANALYZING...", for: .normal)
+        
+        // Visual feedback with animation
+        UIView.animate(withDuration: 0.2, animations: {
+            self.guessTextField.alpha = 0.8
+            self.submitButton.transform = CGAffineTransform(scaleX: 0.95, y: 0.95)
+        }) { _ in
+            UIView.animate(withDuration: 0.2) {
+                self.guessTextField.alpha = 1.0
+                self.submitButton.transform = CGAffineTransform.identity
+            }
+        }
+        
+        // Haptic feedback
+        let impactFeedback = UIImpactFeedbackGenerator(style: .medium)
+        impactFeedback.impactOccurred()
+        
+        // Clear guess field immediately
+        guessTextField.text = ""
+        
+        // Analyze locally (no server call needed)
+        performLocalAnalysis(guess: guess)
+    }
+    
+    private func performLocalAnalysis(guess: String) {
+        print("🔍 Performing local analysis: '\(guess)' vs '\(opponentSecret)'")
+        
+        // Validate inputs
+        guard !opponentSecret.isEmpty else {
+            print("❌ No opponent secret available for analysis")
+            handleContinueGuessResult(success: false, guess: guess, bulls: 0, cows: 0)
+            return
+        }
+        
+        guard guess.count == opponentSecret.count else {
+            print("❌ Guess length (\(guess.count)) doesn't match secret length (\(opponentSecret.count))")
+            handleContinueGuessResult(success: false, guess: guess, bulls: 0, cows: 0)
+            return
+        }
+        
+        // Calculate bulls and cows
+        let result = analyzeGuessLocally(guess: guess, secret: opponentSecret)
+        
+        // Simulate a brief delay for realistic feel
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+            self.handleContinueGuessResult(success: true, guess: guess, bulls: result.bulls, cows: result.cows)
+        }
+    }
+    
+    private func analyzeGuessLocally(guess: String, secret: String) -> (bulls: Int, cows: Int) {
+        print("🧮 Local analysis: guess='\(guess)', secret='\(secret)'")
+        
+        var bulls = 0
+        var cows = 0
+        
+        let guessArray = Array(guess)
+        let secretArray = Array(secret)
+        
+        // Count bulls (correct position)
+        for i in 0..<guessArray.count {
+            if guessArray[i] == secretArray[i] {
+                bulls += 1
+            }
+        }
+        
+        // Count total matches for cows calculation
+        var secretCount: [Character: Int] = [:]
+        var guessCount: [Character: Int] = [:]
+        
+        for char in secretArray {
+            secretCount[char, default: 0] += 1
+        }
+        
+        for char in guessArray {
+            guessCount[char, default: 0] += 1
+        }
+        
+        var totalMatches = 0
+        for (char, count) in guessCount {
+            totalMatches += min(count, secretCount[char, default: 0])
+        }
+        
+        cows = totalMatches - bulls // cows = total matches - bulls
+        
+        print("📊 Analysis result: \(bulls)B \(cows)C")
+        return (bulls, cows)
+    }
+    
+    private func submitContinueGuessToServer(guess: String) {
+        let url = URL(string: "\(baseURL)/game/guess-continue")!
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.setValue("no-cache", forHTTPHeaderField: "Cache-Control")
+        request.timeoutInterval = 5.0
+        
+        let body = [
+            "roomId": roomId,
+            "playerId": playerId,
+            "guess": guess,
+            "mode": "continue_guessing",
+            "targetSecret": opponentSecret // Secret to guess against
+        ]
+        
+        do {
+            request.httpBody = try JSONSerialization.data(withJSONObject: body)
+        } catch {
+            print("❌ Continue guess request creation failed: \(error)")
+            resetContinueGuessingButtonState()
+            return
+        }
+        
+        print("🎯 Sending continue guess: '\(guess)' -> \(baseURL)/game/guess-continue")
+        
+        URLSession.shared.dataTask(with: request) { [weak self] data, response, error in
+            guard let self = self else { return }
+            
+            DispatchQueue.main.async {
+                if let error = error {
+                    print("🎯 Continue guess error: \(error.localizedDescription)")
+                    self.handleContinueGuessResult(success: false, guess: guess, bulls: 0, cows: 0)
+                    return
+                }
+                
+                guard let data = data else {
+                    print("🎯 No response data for continue guess")
+                    self.handleContinueGuessResult(success: false, guess: guess, bulls: 0, cows: 0)
+                    return
+                }
+                
+                do {
+                    if let json = try JSONSerialization.jsonObject(with: data) as? [String: Any] {
+                        if let success = json["success"] as? Bool, success,
+                           let result = json["result"] as? [String: Any],
+                           let bulls = result["bulls"] as? Int,
+                           let cows = result["cows"] as? Int {
+                            self.handleContinueGuessResult(success: true, guess: guess, bulls: bulls, cows: cows)
+                        } else {
+                            print("🎯 Continue guess server error: \(json["error"] as? String ?? "Unknown")")
+                            self.handleContinueGuessResult(success: false, guess: guess, bulls: 0, cows: 0)
+                        }
+                    }
+                } catch {
+                    print("🎯 Continue guess parse error: \(error)")
+                    self.handleContinueGuessResult(success: false, guess: guess, bulls: 0, cows: 0)
+                }
+            }
+        }.resume()
+    }
+    
+    private func handleContinueGuessResult(success: Bool, guess: String, bulls: Int, cows: Int) {
+        if !success {
+            // Handle error case
+            submitButton.setTitle("❌ TRY AGAIN", for: .normal)
+            DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
+                self.resetContinueGuessingButtonState()
+            }
+            return
+        }
+        
+        // Show result
+        submitButton.setTitle("📊 \(bulls)B \(cows)C", for: .normal)
+        
+        // Check if we decoded the secret
+        if bulls == digits {
+            // Successfully decoded enemy secret!
+            submitButton.setTitle("🎯 SECRET DECODED!", for: .normal)
+            DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
+                self.showContinueGuessingSuccessModal()
+            }
+        } else {
+            // Continue analyzing - reset button after showing result
+            DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) {
+                self.resetContinueGuessingButtonState()
+            }
+        }
+        
+        // Add the guess to local history for reference
+        addContinueGuessToLocalHistory(guess: guess, bulls: bulls, cows: cows)
+    }
+    
+    private func addContinueGuessToLocalHistory(guess: String, bulls: Int, cows: Int) {
+        // Create a local history entry for continue guessing
+        let entry: [String: Any] = [
+            "playerName": "🕵️ Intelligence Analysis",
+            "guess": guess,
+            "bulls": bulls,
+            "cows": cows,
+            "timestamp": ISO8601DateFormatter().string(from: Date()),
+            "isContinueGuess": true
+        ]
+        
+        // Add to history container if available
+        guard let historyContainer = self.historyContainer else { return }
+        
+        let historyItemView = createHistoryItemView(
+            playerName: "🕵️ Intelligence Analysis",
+            guess: guess,
+            bulls: bulls,
+            cows: cows
+        )
+        
+        // Special styling for continue guessing entries
+        historyItemView.backgroundColor = UIColor(red: 0.2, green: 0.4, blue: 0.6, alpha: 0.3)
+        historyItemView.layer.borderColor = UIColor(red: 0.3, green: 0.5, blue: 0.8, alpha: 0.9).cgColor
+        
+        // Smooth fade-in animation
+        historyItemView.alpha = 0.0
+        historyItemView.transform = CGAffineTransform(translationX: 0, y: 20)
+        historyContainer.addArrangedSubview(historyItemView)
+        
+        UIView.animate(withDuration: 0.3, delay: 0, options: .curveEaseOut) {
+            historyItemView.alpha = 1.0
+            historyItemView.transform = CGAffineTransform.identity
+        }
+        
+        // Auto-scroll to show new entries
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+            if let scrollView = historyContainer.superview as? UIScrollView {
+                let bottomOffset = CGPoint(x: 0, y: max(0, scrollView.contentSize.height - scrollView.bounds.height))
+                scrollView.setContentOffset(bottomOffset, animated: true)
+            }
+        }
     }
 }

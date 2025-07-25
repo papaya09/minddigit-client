@@ -22,6 +22,7 @@ class OnlineGameViewController: UIViewController {
     var isMyTurn: Bool = false
     var gameTimer: Timer?
     var yourSecret: String = ""
+    var opponentSecret: String = "" // For continue guessing mode
     var lastHistoryHash: Int = 0 // For smart history updates
     
     // Network
@@ -177,10 +178,16 @@ class OnlineGameViewController: UIViewController {
     }
     
     func updateTurnUI() {
-        print("🎯 updateTurnUI called: currentTurn='\(currentTurn)', playerId='\(playerId)', isMyTurn=\(isMyTurn)")
+        print("🔄 updateTurnUI called: currentTurn='\(currentTurn)', playerId='\(playerId)', isMyTurn=\(isMyTurn), gameState=\(gameState)")
         
         // MUST be called from main thread only - no more nested dispatches
         assert(Thread.isMainThread, "updateTurnUI() must be called from main thread")
+        
+        // Don't update turn UI if we're in continue guessing mode - preserve continue mode UI
+        if gameState == "CONTINUE_GUESSING" {
+            print("🛑 BLOCKED: updateTurnUI - in continue guessing mode, preserving UI")
+            return
+        }
         
         // If no turn is set and we have players, auto-assign first turn
         if currentTurn.isEmpty && !playerId.isEmpty {
@@ -244,6 +251,8 @@ class OnlineGameViewController: UIViewController {
         // MUST be on main thread
         assert(Thread.isMainThread, "updateKeypadButtonsState() must be called from main thread")
         
+        print("🔧 updateKeypadButtonsState called - gameState: \(gameState), isMyTurn: \(isMyTurn)")
+        
         guard !allKeypadButtons.isEmpty else {
             print("⚠️ Keypad buttons not initialized yet")
             return
@@ -258,11 +267,16 @@ class OnlineGameViewController: UIViewController {
         }
         
         // Update button states immediately - no animation to prevent conflicts
+        // Enable buttons if it's my turn OR we're in continue guessing mode
+        let buttonsEnabled = isMyTurn || gameState == "CONTINUE_GUESSING"
+        
+        print("🎯 Setting keypad buttons enabled: \(buttonsEnabled) (turn: \(isMyTurn), continue mode: \(gameState == "CONTINUE_GUESSING"))")
+        
         for button in validButtons {
-            button.isEnabled = isMyTurn
+            button.isEnabled = buttonsEnabled
             
             // Immediate visual update - no animation to prevent thread issues
-            if isMyTurn {
+            if buttonsEnabled {
                 button.alpha = 1.0
                 button.transform = CGAffineTransform.identity
             } else {
@@ -271,7 +285,7 @@ class OnlineGameViewController: UIViewController {
             }
         }
         
-        print("🎯 Updated \(validButtons.count) keypad buttons for turn: \(isMyTurn)")
+        print("✅ Updated \(validButtons.count) keypad buttons - enabled: \(buttonsEnabled)")
     }
     
     func assignFirstTurn() {
@@ -1378,32 +1392,563 @@ class OnlineGameViewController: UIViewController {
     }
     
     func showGameOverAlert(won: Bool) {
-        let title = won ? "🎉 Congratulations!" : "💔 Game Over"
-        let message = won ? 
-            "You correctly guessed the secret number!\n🏆 You are the winner!" : 
-            "Better luck next time!"
+        // Prevent duplicate modal displays
+        guard !hasShownGameEndModal else {
+            print("🛑 Game end modal already shown, skipping duplicate")
+            return
+        }
         
-        let alert = UIAlertController(title: title, message: message, preferredStyle: .alert)
-        
-        alert.addAction(UIAlertAction(title: "🎮 New Game", style: .default) { [weak self] _ in
-            self?.dismiss(animated: true)
-        })
-        
-        alert.addAction(UIAlertAction(title: "📊 View Results", style: .default) { [weak self] _ in
-            // Stay in game to view final history
-        })
-        
-        present(alert, animated: true)
+        hasShownGameEndModal = true
+        print("✅ Setting hasShownGameEndModal = true")
         
         // Stop polling when game ends
         gameTimer?.invalidate()
         gameTimer = nil
+        
+        // Show custom modal instead of alert
+        showGameEndModal(won: won)
         
         // Celebration haptic feedback
         if won {
             let successFeedback = UINotificationFeedbackGenerator()
             successFeedback.notificationOccurred(.success)
         }
+    }
+    
+    private func showGameEndModal(won: Bool) {
+        // Create modal background
+        let modalBackground = UIView()
+        modalBackground.backgroundColor = UIColor.black.withAlphaComponent(0.7)
+        modalBackground.translatesAutoresizingMaskIntoConstraints = false
+        modalBackground.alpha = 0
+        
+        // Create modal container
+        let modalContainer = UIView()
+        modalContainer.backgroundColor = UIColor(red: 0.08, green: 0.12, blue: 0.18, alpha: 0.98)
+        modalContainer.layer.cornerRadius = 20
+        modalContainer.layer.borderWidth = 2
+        modalContainer.layer.borderColor = won ? 
+            UIColor(red: 0.2, green: 0.8, blue: 0.3, alpha: 1.0).cgColor : 
+            UIColor(red: 1.0, green: 0.4, blue: 0.2, alpha: 1.0).cgColor
+        
+        // Add glow effect
+        modalContainer.layer.shadowColor = won ? 
+            UIColor(red: 0.2, green: 0.8, blue: 0.3, alpha: 0.8).cgColor : 
+            UIColor(red: 1.0, green: 0.4, blue: 0.2, alpha: 0.8).cgColor
+        modalContainer.layer.shadowOffset = CGSize(width: 0, height: 0)
+        modalContainer.layer.shadowOpacity = 0.8
+        modalContainer.layer.shadowRadius = 15
+        
+        modalContainer.translatesAutoresizingMaskIntoConstraints = false
+        modalContainer.transform = CGAffineTransform(scaleX: 0.7, y: 0.7)
+        
+        // Create title label
+        let titleLabel = UILabel()
+        titleLabel.text = won ? "🎉 MISSION ACCOMPLISHED!" : "💪 MISSION CONTINUES"
+        titleLabel.font = UIFont(name: "Menlo-Bold", size: 20) ?? UIFont.boldSystemFont(ofSize: 20)
+        titleLabel.textColor = won ? 
+            UIColor(red: 0.2, green: 0.8, blue: 0.3, alpha: 1.0) : 
+            UIColor(red: 1.0, green: 0.4, blue: 0.2, alpha: 1.0)
+        titleLabel.textAlignment = .center
+        titleLabel.translatesAutoresizingMaskIntoConstraints = false
+        
+        // Add glow to title
+        titleLabel.layer.shadowColor = titleLabel.textColor.cgColor
+        titleLabel.layer.shadowOffset = CGSize(width: 0, height: 0)
+        titleLabel.layer.shadowOpacity = 0.8
+        titleLabel.layer.shadowRadius = 8
+        
+        // Create message label
+        let messageLabel = UILabel()
+        messageLabel.text = won ? 
+            "TARGET ACQUIRED SUCCESSFULLY!\n🏆 You are the winner!" : 
+            "Target eluded capture.\nBetter luck next time, soldier!"
+        messageLabel.font = UIFont(name: "Menlo-Regular", size: 14) ?? UIFont.systemFont(ofSize: 14)
+        messageLabel.textColor = UIColor(red: 0.9, green: 0.95, blue: 1.0, alpha: 0.9)
+        messageLabel.textAlignment = .center
+        messageLabel.numberOfLines = 0
+        messageLabel.translatesAutoresizingMaskIntoConstraints = false
+        
+        // Create button stack
+        let buttonStack = UIStackView()
+        buttonStack.axis = .vertical
+        buttonStack.spacing = 12
+        buttonStack.translatesAutoresizingMaskIntoConstraints = false
+        
+        // Button 1: Return to lobby
+        let lobbyButton = createModalButton(
+            title: "🚀 RETURN TO LOBBY", 
+            subtitle: "Ready for next mission",
+            isPrimary: true
+        ) { [weak self] in
+            self?.dismissModalAndReturnToLobby()
+        }
+        
+        // Button 2: Return to main menu
+        let mainMenuButton = createModalButton(
+            title: "🏠 MAIN MENU", 
+            subtitle: "Back to command center",
+            isPrimary: false
+        ) { [weak self] in
+            self?.dismissModalAndReturnToMain()
+        }
+        
+        buttonStack.addArrangedSubview(lobbyButton)
+        buttonStack.addArrangedSubview(mainMenuButton)
+        
+        // Button 3: Continue guessing (for loser only)
+        if !won {
+            let continueButton = createModalButton(
+                title: "🎯 CONTINUE ASSAULT", 
+                subtitle: "Decode enemy secret",
+                isPrimary: false
+            ) { [weak self] in
+                self?.dismissModalAndContinueGuessing()
+            }
+            buttonStack.addArrangedSubview(continueButton)
+        }
+        
+        // Add to view hierarchy
+        view.addSubview(modalBackground)
+        modalBackground.addSubview(modalContainer)
+        modalContainer.addSubview(titleLabel)
+        modalContainer.addSubview(messageLabel)
+        modalContainer.addSubview(buttonStack)
+        
+        // Set up constraints
+        NSLayoutConstraint.activate([
+            // Modal background
+            modalBackground.topAnchor.constraint(equalTo: view.topAnchor),
+            modalBackground.leadingAnchor.constraint(equalTo: view.leadingAnchor),
+            modalBackground.trailingAnchor.constraint(equalTo: view.trailingAnchor),
+            modalBackground.bottomAnchor.constraint(equalTo: view.bottomAnchor),
+            
+            // Modal container
+            modalContainer.centerXAnchor.constraint(equalTo: modalBackground.centerXAnchor),
+            modalContainer.centerYAnchor.constraint(equalTo: modalBackground.centerYAnchor),
+            modalContainer.widthAnchor.constraint(equalToConstant: 320),
+            modalContainer.heightAnchor.constraint(greaterThanOrEqualToConstant: won ? 280 : 360),
+            
+            // Title
+            titleLabel.topAnchor.constraint(equalTo: modalContainer.topAnchor, constant: 25),
+            titleLabel.leadingAnchor.constraint(equalTo: modalContainer.leadingAnchor, constant: 20),
+            titleLabel.trailingAnchor.constraint(equalTo: modalContainer.trailingAnchor, constant: -20),
+            
+            // Message
+            messageLabel.topAnchor.constraint(equalTo: titleLabel.bottomAnchor, constant: 15),
+            messageLabel.leadingAnchor.constraint(equalTo: modalContainer.leadingAnchor, constant: 20),
+            messageLabel.trailingAnchor.constraint(equalTo: modalContainer.trailingAnchor, constant: -20),
+            
+            // Button stack
+            buttonStack.topAnchor.constraint(equalTo: messageLabel.bottomAnchor, constant: 25),
+            buttonStack.leadingAnchor.constraint(equalTo: modalContainer.leadingAnchor, constant: 20),
+            buttonStack.trailingAnchor.constraint(equalTo: modalContainer.trailingAnchor, constant: -20),
+            buttonStack.bottomAnchor.constraint(equalTo: modalContainer.bottomAnchor, constant: -25)
+        ])
+        
+        // Animate modal in
+        UIView.animate(withDuration: 0.3, delay: 0, options: .curveEaseOut) {
+            modalBackground.alpha = 1
+            modalContainer.transform = CGAffineTransform.identity
+        }
+    }
+    
+    private func createModalButton(title: String, subtitle: String, isPrimary: Bool, action: @escaping () -> Void) -> UIButton {
+        let button = UIButton(type: .custom)
+        button.backgroundColor = isPrimary ? 
+            UIColor(red: 0.2, green: 0.6, blue: 0.9, alpha: 0.9) : 
+            UIColor(red: 0.12, green: 0.18, blue: 0.25, alpha: 0.9)
+        button.layer.cornerRadius = 12
+        button.layer.borderWidth = 1
+        button.layer.borderColor = isPrimary ? 
+            UIColor(red: 0.3, green: 0.7, blue: 1.0, alpha: 1.0).cgColor : 
+            UIColor(red: 0.4, green: 0.5, blue: 0.6, alpha: 0.8).cgColor
+        
+        // Add glow for primary button
+        if isPrimary {
+            button.layer.shadowColor = UIColor(red: 0.2, green: 0.6, blue: 0.9, alpha: 0.8).cgColor
+            button.layer.shadowOffset = CGSize(width: 0, height: 0)
+            button.layer.shadowOpacity = 0.6
+            button.layer.shadowRadius = 8
+        }
+        
+        // Create button content stack
+        let contentStack = UIStackView()
+        contentStack.axis = .vertical
+        contentStack.spacing = 2
+        contentStack.isUserInteractionEnabled = false
+        contentStack.translatesAutoresizingMaskIntoConstraints = false
+        
+        let titleLabel = UILabel()
+        titleLabel.text = title
+        titleLabel.font = UIFont(name: "Menlo-Bold", size: 14) ?? UIFont.boldSystemFont(ofSize: 14)
+        titleLabel.textColor = .white
+        titleLabel.textAlignment = .center
+        
+        let subtitleLabel = UILabel()
+        subtitleLabel.text = subtitle
+        subtitleLabel.font = UIFont(name: "Menlo-Regular", size: 11) ?? UIFont.systemFont(ofSize: 11)
+        subtitleLabel.textColor = UIColor.white.withAlphaComponent(0.7)
+        subtitleLabel.textAlignment = .center
+        
+        contentStack.addArrangedSubview(titleLabel)
+        contentStack.addArrangedSubview(subtitleLabel)
+        
+        button.addSubview(contentStack)
+        NSLayoutConstraint.activate([
+            contentStack.centerXAnchor.constraint(equalTo: button.centerXAnchor),
+            contentStack.centerYAnchor.constraint(equalTo: button.centerYAnchor),
+            button.heightAnchor.constraint(equalToConstant: 50)
+        ])
+        
+        // Add touch animation
+        button.addTarget(self, action: #selector(modalButtonTouchDown(_:)), for: .touchDown)
+        button.addTarget(self, action: #selector(modalButtonTouchUp(_:)), for: [.touchUpInside, .touchUpOutside])
+        
+        // Store action in button
+        button.tag = buttonActions.count
+        buttonActions.append(action)
+        button.addTarget(self, action: #selector(modalButtonTapped(_:)), for: .touchUpInside)
+        
+        button.translatesAutoresizingMaskIntoConstraints = false
+        return button
+    }
+    
+    // Button actions storage
+    private var buttonActions: [() -> Void] = []
+    
+    // Modal state management
+    var hasShownGameEndModal = false
+    var isInContinueMode = false
+    
+    // Modal button animation handlers
+    @objc private func modalButtonTouchDown(_ sender: UIButton) {
+        UIView.animate(withDuration: 0.1) {
+            sender.transform = CGAffineTransform(scaleX: 0.95, y: 0.95)
+            sender.alpha = 0.8
+        }
+        
+        let impactFeedback = UIImpactFeedbackGenerator(style: .medium)
+        impactFeedback.impactOccurred()
+    }
+    
+    @objc private func modalButtonTouchUp(_ sender: UIButton) {
+        UIView.animate(withDuration: 0.2, delay: 0, usingSpringWithDamping: 0.7, initialSpringVelocity: 0.5) {
+            sender.transform = CGAffineTransform.identity
+            sender.alpha = 1.0
+        }
+    }
+    
+    @objc private func modalButtonTapped(_ sender: UIButton) {
+        let actionIndex = sender.tag
+        print("🎯 Modal button tapped - tag: \(actionIndex), total actions: \(buttonActions.count)")
+        if actionIndex < buttonActions.count {
+            print("🎯 Executing action at index \(actionIndex)")
+            buttonActions[actionIndex]()
+        } else {
+            print("❌ Action index out of bounds!")
+        }
+    }
+    
+    // Modal action handlers
+    private func dismissModalAndReturnToLobby() {
+        // Find and remove modal
+        if let modalBackground = view.subviews.first(where: { $0.backgroundColor == UIColor.black.withAlphaComponent(0.7) }) {
+            UIView.animate(withDuration: 0.3, animations: {
+                modalBackground.alpha = 0
+                if let modalContainer = modalBackground.subviews.first {
+                    modalContainer.transform = CGAffineTransform(scaleX: 0.7, y: 0.7)
+                }
+            }) { _ in
+                modalBackground.removeFromSuperview()
+            }
+        }
+        
+        // Clear button actions
+        buttonActions.removeAll()
+        
+        // Stop all network activities
+        stopGamePolling()
+        
+        // Navigate back to waiting/lobby screen
+        // Since we're in a presented view controller, we dismiss to go back
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+            // Try to find the OnlineWaitingViewController in navigation stack
+            if let navigationController = self.navigationController {
+                // Pop back to waiting screen
+                for viewController in navigationController.viewControllers {
+                    if viewController.className.contains("OnlineWaiting") {
+                        navigationController.popToViewController(viewController, animated: true)
+                        return
+                    }
+                }
+            }
+            
+            // Fallback: dismiss this view controller
+            self.dismiss(animated: true)
+        }
+    }
+    
+    private func dismissModalAndReturnToMain() {
+        // Find and remove modal
+        if let modalBackground = view.subviews.first(where: { $0.backgroundColor == UIColor.black.withAlphaComponent(0.7) }) {
+            UIView.animate(withDuration: 0.3, animations: {
+                modalBackground.alpha = 0
+                if let modalContainer = modalBackground.subviews.first {
+                    modalContainer.transform = CGAffineTransform(scaleX: 0.7, y: 0.7)
+                }
+            }) { _ in
+                modalBackground.removeFromSuperview()
+            }
+        }
+        
+        // Clear button actions
+        buttonActions.removeAll()
+        
+        // Stop all network activities
+        stopGamePolling()
+        
+        // Navigate back to main menu
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+            // Try to dismiss all the way back to main menu
+            if let navigationController = self.navigationController {
+                navigationController.popToRootViewController(animated: true)
+            } else {
+                self.dismiss(animated: true)
+            }
+        }
+    }
+    
+    private func dismissModalAndContinueGuessing() {
+        print("🎯 Dismissing modal and enabling continue guessing mode")
+        
+        // Find and remove modal
+        if let modalBackground = view.subviews.first(where: { $0.backgroundColor == UIColor.black.withAlphaComponent(0.7) }) {
+            UIView.animate(withDuration: 0.3, animations: {
+                modalBackground.alpha = 0
+                if let modalContainer = modalBackground.subviews.first {
+                    modalContainer.transform = CGAffineTransform(scaleX: 0.7, y: 0.7)
+                }
+            }) { _ in
+                modalBackground.removeFromSuperview()
+                print("🎯 Modal removed successfully")
+            }
+        }
+        
+        // Clear button actions
+        buttonActions.removeAll()
+        
+        // Enable continue guessing mode
+        enableContinueGuessingMode()
+    }
+    
+    private func enableContinueGuessingMode() {
+        print("🎯 Enabling continue guessing mode...")
+        
+        // Check if we have opponent secret
+        if opponentSecret.isEmpty {
+            print("⚠️ Warning: No opponent secret available for continue guessing")
+            // Try to find it from current game state - this should be populated by now
+        }
+        
+        // Set continue mode flag to prevent further modals
+        isInContinueMode = true
+        print("✅ Setting isInContinueMode = true")
+        
+        // Change game state to allow continued guessing
+        gameState = "CONTINUE_GUESSING"
+        print("🎯 Game state set to: \(gameState)")
+        
+        // Update UI to indicate continue mode
+        turnLabel.text = "🎯 DECODE ENEMY SECRET"
+        turnLabel.textColor = UIColor(red: 1.0, green: 0.6, blue: 0.2, alpha: 1.0)
+        
+        // Enable input regardless of turn (since we're in special mode)
+        // In continue mode, we can always guess without waiting for turns
+        isMyTurn = true
+        currentTurn = playerId // Set ourselves as having the turn permanently in this mode
+        print("🎯 Set isMyTurn = \(isMyTurn), currentTurn = \(currentTurn)")
+        
+        updateTurnUI()
+        updateKeypadButtonsState()
+        
+        // Update submit button text and enable it
+        submitButton.setTitle("🔍 ANALYZE", for: .normal)
+        submitButton.isEnabled = true
+        submitButton.alpha = 1.0
+        print("🎯 Submit button configured: enabled=\(submitButton.isEnabled), alpha=\(submitButton.alpha)")
+        
+        // Don't restart full polling - we're in local analysis mode
+        // But we can still do minimal background sync if needed
+        
+        // Add a note in secret label showing target secret
+        if !opponentSecret.isEmpty {
+            secretLabel.text = "🎯 TARGET: \(opponentSecret) • DECODE THIS SECRET!"
+        } else {
+            secretLabel.text = "🕵️ INTELLIGENCE GATHERING MODE • NO TURN LIMITS"
+        }
+        
+        // Clear the text field for new guesses
+        guessTextField.text = ""
+        print("🎯 Text field cleared")
+        
+        // Force update the UI components
+        DispatchQueue.main.async {
+            self.view.setNeedsLayout()
+            self.view.layoutIfNeeded()
+        }
+        
+        print("🎯 Continue guessing mode enabled successfully!")
+        print("🎯 Current state - gameState: \(gameState), isMyTurn: \(isMyTurn), submitEnabled: \(submitButton.isEnabled)")
+    }
+    
+    func resetContinueGuessingButtonState() {
+        print("🔄 resetContinueGuessingButtonState called - gameState: \(gameState)")
+        
+        submitButton.setTitle("🔍 ANALYZE", for: .normal)
+        
+        // Restore continue guessing UI state
+        turnLabel.text = "🎯 DECODE ENEMY SECRET"
+        turnLabel.textColor = UIColor(red: 1.0, green: 0.6, blue: 0.2, alpha: 1.0)
+        
+        print("🎯 Turn label set to: \(turnLabel.text ?? "nil")")
+        
+        // Ensure keypad stays enabled in continue mode
+        print("🔧 About to call updateKeypadButtonsState()")
+        updateKeypadButtonsState()
+        
+        // Update submit button state based on current text (ensure main thread)
+        DispatchQueue.main.async {
+            print("🔤 About to call guessTextChanged()")
+            self.guessTextChanged()
+        }
+        
+        print("✅ Continue guessing state reset completed - ready for next guess")
+    }
+    
+    func showContinueGuessingSuccessModal() {
+        // Create modal background
+        let modalBackground = UIView()
+        modalBackground.backgroundColor = UIColor.black.withAlphaComponent(0.7)
+        modalBackground.translatesAutoresizingMaskIntoConstraints = false
+        modalBackground.alpha = 0
+        
+        // Create modal container
+        let modalContainer = UIView()
+        modalContainer.backgroundColor = UIColor(red: 0.08, green: 0.12, blue: 0.18, alpha: 0.98)
+        modalContainer.layer.cornerRadius = 20
+        modalContainer.layer.borderWidth = 2
+        modalContainer.layer.borderColor = UIColor(red: 0.2, green: 0.8, blue: 0.3, alpha: 1.0).cgColor
+        
+        // Add glow effect
+        modalContainer.layer.shadowColor = UIColor(red: 0.2, green: 0.8, blue: 0.3, alpha: 0.8).cgColor
+        modalContainer.layer.shadowOffset = CGSize(width: 0, height: 0)
+        modalContainer.layer.shadowOpacity = 0.8
+        modalContainer.layer.shadowRadius = 15
+        
+        modalContainer.translatesAutoresizingMaskIntoConstraints = false
+        modalContainer.transform = CGAffineTransform(scaleX: 0.7, y: 0.7)
+        
+        // Create title label
+        let titleLabel = UILabel()
+        titleLabel.text = "🎯 SECRET DECODED!"
+        titleLabel.font = UIFont(name: "Menlo-Bold", size: 20) ?? UIFont.boldSystemFont(ofSize: 20)
+        titleLabel.textColor = UIColor(red: 0.2, green: 0.8, blue: 0.3, alpha: 1.0)
+        titleLabel.textAlignment = .center
+        titleLabel.translatesAutoresizingMaskIntoConstraints = false
+        
+        // Add glow to title
+        titleLabel.layer.shadowColor = titleLabel.textColor.cgColor
+        titleLabel.layer.shadowOffset = CGSize(width: 0, height: 0)
+        titleLabel.layer.shadowOpacity = 0.8
+        titleLabel.layer.shadowRadius = 8
+        
+        // Create message label
+        let messageLabel = UILabel()
+        messageLabel.text = "ENEMY INTELLIGENCE ACQUIRED!\n🕵️ You successfully decoded their secret!"
+        messageLabel.font = UIFont(name: "Menlo-Regular", size: 14) ?? UIFont.systemFont(ofSize: 14)
+        messageLabel.textColor = UIColor(red: 0.9, green: 0.95, blue: 1.0, alpha: 0.9)
+        messageLabel.textAlignment = .center
+        messageLabel.numberOfLines = 0
+        messageLabel.translatesAutoresizingMaskIntoConstraints = false
+        
+        // Create button stack
+        let buttonStack = UIStackView()
+        buttonStack.axis = .vertical
+        buttonStack.spacing = 12
+        buttonStack.translatesAutoresizingMaskIntoConstraints = false
+        
+        // Button 1: Return to lobby
+        let lobbyButton = createModalButton(
+            title: "🚀 RETURN TO LOBBY", 
+            subtitle: "Ready for next mission",
+            isPrimary: true
+        ) { [weak self] in
+            self?.dismissModalAndReturnToLobby()
+        }
+        
+        // Button 2: Return to main menu
+        let mainMenuButton = createModalButton(
+            title: "🏠 MAIN MENU", 
+            subtitle: "Back to command center",
+            isPrimary: false
+        ) { [weak self] in
+            self?.dismissModalAndReturnToMain()
+        }
+        
+        buttonStack.addArrangedSubview(lobbyButton)
+        buttonStack.addArrangedSubview(mainMenuButton)
+        
+        // Add to view hierarchy
+        view.addSubview(modalBackground)
+        modalBackground.addSubview(modalContainer)
+        modalContainer.addSubview(titleLabel)
+        modalContainer.addSubview(messageLabel)
+        modalContainer.addSubview(buttonStack)
+        
+        // Set up constraints
+        NSLayoutConstraint.activate([
+            // Modal background
+            modalBackground.topAnchor.constraint(equalTo: view.topAnchor),
+            modalBackground.leadingAnchor.constraint(equalTo: view.leadingAnchor),
+            modalBackground.trailingAnchor.constraint(equalTo: view.trailingAnchor),
+            modalBackground.bottomAnchor.constraint(equalTo: view.bottomAnchor),
+            
+            // Modal container
+            modalContainer.centerXAnchor.constraint(equalTo: modalBackground.centerXAnchor),
+            modalContainer.centerYAnchor.constraint(equalTo: modalBackground.centerYAnchor),
+            modalContainer.widthAnchor.constraint(equalToConstant: 320),
+            modalContainer.heightAnchor.constraint(greaterThanOrEqualToConstant: 280),
+            
+            // Title
+            titleLabel.topAnchor.constraint(equalTo: modalContainer.topAnchor, constant: 25),
+            titleLabel.leadingAnchor.constraint(equalTo: modalContainer.leadingAnchor, constant: 20),
+            titleLabel.trailingAnchor.constraint(equalTo: modalContainer.trailingAnchor, constant: -20),
+            
+            // Message
+            messageLabel.topAnchor.constraint(equalTo: titleLabel.bottomAnchor, constant: 15),
+            messageLabel.leadingAnchor.constraint(equalTo: modalContainer.leadingAnchor, constant: 20),
+            messageLabel.trailingAnchor.constraint(equalTo: modalContainer.trailingAnchor, constant: -20),
+            
+            // Button stack
+            buttonStack.topAnchor.constraint(equalTo: messageLabel.bottomAnchor, constant: 25),
+            buttonStack.leadingAnchor.constraint(equalTo: modalContainer.leadingAnchor, constant: 20),
+            buttonStack.trailingAnchor.constraint(equalTo: modalContainer.trailingAnchor, constant: -20),
+            buttonStack.bottomAnchor.constraint(equalTo: modalContainer.bottomAnchor, constant: -25)
+        ])
+        
+        // Animate modal in
+        UIView.animate(withDuration: 0.3, delay: 0, options: .curveEaseOut) {
+            modalBackground.alpha = 1
+            modalContainer.transform = CGAffineTransform.identity
+        }
+        
+        // Stop game polling since we've completed the continue guessing phase
+        stopGamePolling()
+        
+        // Success haptic feedback
+        let successFeedback = UINotificationFeedbackGenerator()
+        successFeedback.notificationOccurred(.success)
     }
     
     func showWinDialog() {
@@ -1452,5 +1997,12 @@ class OnlineGameViewController: UIViewController {
                 self?.dismiss(animated: true)
             }
         }.resume()
+    }
+}
+
+// Helper extension for class name
+extension NSObject {
+    var className: String {
+        return String(describing: type(of: self))
     }
 }
