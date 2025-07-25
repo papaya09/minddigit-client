@@ -1217,47 +1217,8 @@ class OnlineGameViewController: UIViewController {
     // MARK: - Game Polling
     // stopGamePolling implementation in Network extension
     
-    func createPlaceholderView() -> UIView {
-        let container = UIView()
-        container.backgroundColor = UIColor(red: 0.1, green: 0.2, blue: 0.4, alpha: 0.3)
-        container.layer.cornerRadius = 16
-        container.layer.borderWidth = 2
-        container.layer.borderColor = UIColor(red: 0.3, green: 0.7, blue: 1.0, alpha: 0.5).cgColor
-        container.accessibilityIdentifier = "history-placeholder" // 🎯 For easy removal
-        
-        // Add SpaceX waiting glow
-        container.layer.shadowColor = UIColor(red: 0.3, green: 0.7, blue: 1.0, alpha: 0.3).cgColor
-        container.layer.shadowOffset = CGSize(width: 0, height: 0)
-        container.layer.shadowOpacity = 0.8
-        container.layer.shadowRadius = 8
-        
-        container.translatesAutoresizingMaskIntoConstraints = false
-        
-        let label = UILabel()
-        label.text = "🚀 MISSION STANDBY\nAwaiting first attack sequence..."
-        label.font = UIFont(name: "Menlo-Regular", size: 14) ?? UIFont.systemFont(ofSize: 14, weight: .semibold)
-        label.textColor = UIColor(red: 0.9, green: 0.95, blue: 1.0, alpha: 1.0)
-        label.textAlignment = .center
-        label.numberOfLines = 2
-        label.translatesAutoresizingMaskIntoConstraints = false
-        
-        // Add glow effect
-        label.layer.shadowColor = UIColor.systemBlue.cgColor
-        label.layer.shadowOffset = CGSize(width: 0, height: 0)
-        label.layer.shadowOpacity = 0.8
-        label.layer.shadowRadius = 4
-        
-        container.addSubview(label)
-        
-        NSLayoutConstraint.activate([
-            container.heightAnchor.constraint(equalToConstant: 50),
-            label.leadingAnchor.constraint(equalTo: container.leadingAnchor, constant: 15),
-            label.trailingAnchor.constraint(equalTo: container.trailingAnchor, constant: -15),
-            label.centerYAnchor.constraint(equalTo: container.centerYAnchor)
-        ])
-        
-        return container
-    }
+    // 🎯 PLACEHOLDER REMOVED - Clean empty container approach
+    // No more "mission standby" messages that flicker!
     
     func createHistoryItemView(playerName: String, guess: String, bulls: Int, cows: Int) -> UIView {
         let container = UIView()

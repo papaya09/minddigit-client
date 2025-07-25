@@ -996,8 +996,8 @@ extension OnlineGameViewController {
             self.updatePerformanceMetrics(responseTime: responseTime, endpoint: "history-append")
             
             if let data = data,
-               let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-               let success = json["success"] as? Bool, success,
+                  let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+                  let success = json["success"] as? Bool, success,
                let newHistory = json["history"] as? [[String: Any]] {
                 
                 DispatchQueue.main.async {
@@ -1022,8 +1022,8 @@ extension OnlineGameViewController {
     private func appendNewHistoryEntries(newHistory: [[String: Any]]) {
         guard let historyContainer = self.historyContainer else {
             print("⚠️ History container not initialized")
-            return
-        }
+                return
+            }
         
         // Find new entries by comparing with what's already displayed
         let newEntries = findNewHistoryEntries(current: displayedHistoryEntries, new: newHistory)
@@ -1035,16 +1035,7 @@ extension OnlineGameViewController {
         
         print("📜 Appending \(newEntries.count) new history entries")
         
-        // Remove placeholder if it exists
-        if displayedHistoryEntries.isEmpty {
-            for subview in historyContainer.arrangedSubviews {
-                if subview.accessibilityIdentifier == "history-placeholder" {
-                    historyContainer.removeArrangedSubview(subview)
-                    subview.removeFromSuperview()
-                    break
-                }
-            }
-        }
+        // 🎯 NO PLACEHOLDER REMOVAL - Clean container approach
         
         // Append only new entries with smooth animation
         for (index, entry) in newEntries.enumerated() {
@@ -1443,10 +1434,8 @@ extension OnlineGameViewController {
                 }
                 
                 if history.isEmpty {
-                    // Add placeholder if no history
-                    let placeholderView = self.createPlaceholderView()
-            container.addArrangedSubview(placeholderView)
-            print("📜 Added placeholder - no game history yet")
+                    // 🎯 NO PLACEHOLDER - Keep clean empty container
+                    print("📜 No history yet - keeping container empty")
                 } else {
             // Add new entries in order
             for (index, entry) in history.enumerated() {
