@@ -38,6 +38,52 @@ class OnlineGameViewController: UIViewController {
     var aggressivePollingCount = 0
     let maxAggressivePolls = 5
     
+    // Ultra-smooth gaming properties
+    var pendingOptimisticUpdates: [String: Any] = [:]
+    var ultraFastTimer: Timer?
+    var backgroundSyncTimer: Timer?
+    var sharedURLSession: URLSession!
+    var performanceMetrics: [String: Any] = [:]
+
+    // Network optimization properties
+    var lastQuickCheckTime: TimeInterval = 0
+    var isQuickCheckInProgress = false
+    var isBackgroundSyncInProgress = false
+    var adaptivePollingEnabled = true
+
+    // 🎯 CLIENT-SIDE CACHE & ADAPTIVE POLLING
+    var cachedGameHistory: [[String: Any]] = []
+    var lastHistorySync: TimeInterval = 0
+    var historyCache: [String: Any] = [:]
+    var currentHistorySignature: Int = 0
+    
+    // Network Health Tracking
+    var networkHealth: [String: Any] = [
+        "successRate": 1.0,
+        "avgResponseTime": 0.0,
+        "consecutiveErrors": 0,
+        "totalRequests": 0,
+        "successfulRequests": 0
+    ]
+    
+    // Adaptive Polling Configuration
+    var adaptivePollingConfig: [String: Any] = [
+        "baseInterval": 0.5,
+        "currentInterval": 0.5,
+        "minInterval": 0.2,
+        "maxInterval": 5.0,
+        "errorMultiplier": 1.5,
+        "successDivider": 1.2
+    ]
+    
+    // Silent Retry System
+    var silentRetryConfig: [String: Any] = [
+        "maxConsecutiveErrors": 10,
+        "retryDelay": 1.0,
+        "exponentialBackoff": false,
+        "showSubtleIndicator": true
+    ]
+    
     // UI Background
     private let backgroundImageView = UIImageView()
     private let backgroundOverlay = UIView()

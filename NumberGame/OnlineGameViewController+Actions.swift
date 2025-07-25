@@ -96,22 +96,69 @@ extension OnlineGameViewController {
         
         guard let guess = guessTextField.text, !guess.isEmpty else { return }
         
-        // Immediate visual feedback - disable controls
-        submitButton.isEnabled = false
-        submitButton.setTitle("🚀 LAUNCHING...", for: .normal)
-        updateKeypadButtonsState() // Disable keypad
+        // 🚀 OPTIMISTIC UPDATE: Update UI immediately for smooth experience
+        performOptimisticGuessUpdate(guess: guess)
         
-        // Visual feedback - pulsing effect
-        UIView.animate(withDuration: 0.3, delay: 0, options: [.repeat, .autoreverse], animations: {
-            self.guessTextField.alpha = 0.7
+        // Then sync with server in background
+        submitGuessToServer(guess: guess)
+    }
+    
+    // MARK: - Optimistic Updates for Ultra-Smooth UX
+    
+    private func performOptimisticGuessUpdate(guess: String) {
+        print("⚡ Optimistic update: guess '\(guess)'")
+        
+        // 1. Immediate visual feedback
+        submitButton.isEnabled = false
+        submitButton.setTitle("🚀 SENDING...", for: .normal)
+        
+        // 2. Visual feedback with subtle animation
+        UIView.animate(withDuration: 0.2, animations: {
+            self.guessTextField.alpha = 0.8
+            self.submitButton.transform = CGAffineTransform(scaleX: 0.95, y: 0.95)
         }) { _ in
-            self.guessTextField.alpha = 1.0
+            UIView.animate(withDuration: 0.2) {
+                self.guessTextField.alpha = 1.0
+                self.submitButton.transform = CGAffineTransform.identity
+            }
         }
         
+        // 3. Immediate haptic feedback
+        let impactFeedback = UIImpactFeedbackGenerator(style: .medium)
+        impactFeedback.impactOccurred()
+        
+        // 4. Clear guess field immediately
+        guessTextField.text = ""
+        
+        // 5. Optimistically switch turn (will be corrected by server if wrong)
+        let oldTurn = currentTurn
+        let oldIsMyTurn = isMyTurn
+        
+        // Find opponent to switch turn to
+        // This is optimistic - server will correct if needed
+        isMyTurn = false
+        updateKeypadButtonsState() // Disable keypad immediately
+        
+        // Store optimistic state for potential rollback
+        pendingOptimisticUpdates["guess"] = [
+            "guess": guess,
+            "oldTurn": oldTurn,
+            "oldIsMyTurn": oldIsMyTurn,
+            "timestamp": Date().timeIntervalSince1970
+        ]
+        
+        // 6. Show optimistic feedback
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+            self.submitButton.setTitle("✨ PROCESSING...", for: .normal)
+        }
+    }
+    
+    private func submitGuessToServer(guess: String) {
         let url = URL(string: "\(baseURL)/game/guess-local")!
         var request = URLRequest(url: url)
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.timeoutInterval = 10.0 // Normal timeout for server submission
         
         let body = [
             "roomId": roomId,
@@ -123,112 +170,115 @@ extension OnlineGameViewController {
             request.httpBody = try JSONSerialization.data(withJSONObject: body)
         } catch {
             print("❌ Error creating request: \(error)")
-            resetSubmitButtonState()
+            rollbackOptimisticUpdate(type: "guess")
             return
         }
         
-        print("🎯 Submitting guess: \(guess)")
+        print("🎯 Submitting guess to server: \(guess)")
         
         URLSession.shared.dataTask(with: request) { [weak self] data, response, error in
             guard let self = self else { return }
             
             DispatchQueue.main.async {
-                // Stop pulsing animation
-                self.guessTextField.layer.removeAllAnimations()
-                self.guessTextField.alpha = 1.0
-            }
-            
-            if let error = error {
-                print("❌ Network error submitting guess: \(error)")
-                DispatchQueue.main.async {
-                    self.resetSubmitButtonState()
+                if let error = error {
+                    print("❌ Server submission failed: \(error)")
+                    self.rollbackOptimisticUpdate(type: "guess")
                     self.showNetworkError("Failed to submit guess. Please try again.")
+                    return
                 }
-                return
-            }
-            
-            guard let data = data else {
-                print("❌ No data received")
-                DispatchQueue.main.async {
-                    self.resetSubmitButtonState()
-                    self.showNetworkError("No response from server.")
+                
+                guard let data = data else {
+                    print("❌ No server response")
+                    self.rollbackOptimisticUpdate(type: "guess")
+                    return
                 }
-                return
-            }
-            
-            do {
-                if let json = try JSONSerialization.jsonObject(with: data) as? [String: Any] {
-                    print("📨 Guess response: \(json)")
-                    
-                    if let success = json["success"] as? Bool, success,
-                       let result = json["result"] as? [String: Any],
-                       let bulls = result["bulls"] as? Int,
-                       let cows = result["cows"] as? Int {
-                        
-                        DispatchQueue.main.async {
-                            print("🎯 \(guess): \(bulls)B \(cows)C")
-                            
-                            // Immediate feedback - show result briefly
-                            self.submitButton.setTitle("✅ \(bulls)B \(cows)C", for: .normal)
-                            
-                            // Clear the guess field
-                            self.guessTextField.text = ""
-                            
-                            // Update turn immediately (opponent's turn)
-                            if let newCurrentTurn = json["currentTurn"] as? String {
-                                self.currentTurn = newCurrentTurn
-                                self.isMyTurn = (self.currentTurn == self.playerId)
-                                print("🔄 Turn switched to: \(newCurrentTurn), isMyTurn: \(self.isMyTurn)")
-                            }
-                            
-                            // Check for win condition immediately
-                            if let isCorrect = result["isCorrect"] as? Int, isCorrect == 1 {
-                                print("🎉 WIN DETECTED! You guessed correctly!")
-                                self.submitButton.setTitle("🏆 YOU WON!", for: .normal)
-                                DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
-                                    self.showGameOverAlert(won: true)
-                                }
-                            } else if bulls == self.digits {
-                                print("🎉 WIN DETECTED by bulls count!")
-                                self.submitButton.setTitle("🏆 YOU WON!", for: .normal)
-                                DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
-                                    self.showGameOverAlert(won: true)
-                                }
-                            } else {
-                                // Not a win, update UI for opponent's turn
-                                DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
-                                    self.updateTurnUI()
-                                }
-                            }
-                            
-                            // Start aggressive polling for immediate updates
-                            DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
-                                self.startAggressivePolling()
-                            }
-                        }
-                    } else {
-                        print("❌ Server returned error: \(json)")
-                        DispatchQueue.main.async {
-                            self.resetSubmitButtonState()
-                            let errorMessage = json["error"] as? String ?? "Unknown server error"
+                
+                do {
+                    if let json = try JSONSerialization.jsonObject(with: data) as? [String: Any] {
+                        if let success = json["success"] as? Bool, success {
+                            self.handleSuccessfulGuessSubmission(json: json, guess: guess)
+                        } else {
+                            print("❌ Server rejected guess: \(json)")
+                            self.rollbackOptimisticUpdate(type: "guess")
+                            let errorMessage = json["error"] as? String ?? "Server error"
                             self.showNetworkError(errorMessage)
                         }
                     }
-                } else {
-                    print("❌ Invalid guess response format")
-                    DispatchQueue.main.async {
-                        self.resetSubmitButtonState()
-                        self.showNetworkError("Invalid response from server.")
-                    }
-                }
-            } catch {
-                print("❌ Error parsing guess response: \(error)")
-                DispatchQueue.main.async {
-                    self.resetSubmitButtonState()
-                    self.showNetworkError("Failed to parse server response.")
+                } catch {
+                    print("❌ JSON parsing error: \(error)")
+                    self.rollbackOptimisticUpdate(type: "guess")
                 }
             }
         }.resume()
+    }
+    
+    private func handleSuccessfulGuessSubmission(json: [String: Any], guess: String) {
+        print("✅ Server confirmed guess: \(guess)")
+        
+        // Clear optimistic update (it was successful)
+        pendingOptimisticUpdates.removeValue(forKey: "guess")
+        
+        // Process actual server result
+        if let result = json["result"] as? [String: Any],
+           let bulls = result["bulls"] as? Int,
+           let cows = result["cows"] as? Int {
+            
+            // Show actual result
+            submitButton.setTitle("✅ \(bulls)B \(cows)C", for: .normal)
+            
+            // Update turn with server data
+            if let newCurrentTurn = json["currentTurn"] as? String {
+                currentTurn = newCurrentTurn
+                isMyTurn = (currentTurn == playerId)
+            }
+            
+            // Check for win condition
+            if let isCorrect = result["isCorrect"] as? Int, isCorrect == 1 {
+                submitButton.setTitle("🏆 YOU WON!", for: .normal)
+                DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
+                    self.showGameOverAlert(won: true)
+                }
+            } else if bulls == digits {
+                submitButton.setTitle("🏆 YOU WON!", for: .normal)
+                DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
+                    self.showGameOverAlert(won: true)
+                }
+            } else {
+                // Update UI for next turn
+                DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) {
+                    self.resetSubmitButtonState()
+                    self.updateTurnUI()
+                }
+            }
+            
+            // Trigger immediate background sync for latest data
+            backgroundSync()
+            
+        } else {
+            print("❌ Invalid result format from server")
+            rollbackOptimisticUpdate(type: "guess")
+        }
+    }
+    
+    private func rollbackOptimisticUpdate(type: String) {
+        print("🔄 Rolling back optimistic update: \(type)")
+        
+        if let guessUpdate = pendingOptimisticUpdates[type] as? [String: Any] {
+            // Restore previous state
+            if let oldTurn = guessUpdate["oldTurn"] as? String,
+               let oldIsMyTurn = guessUpdate["oldIsMyTurn"] as? Bool {
+                currentTurn = oldTurn
+                isMyTurn = oldIsMyTurn
+            }
+            
+            // Update UI to reflect rollback
+            resetSubmitButtonState()
+            updateTurnUI()
+            updateKeypadButtonsState()
+            
+            // Clear the pending update
+            pendingOptimisticUpdates.removeValue(forKey: type)
+        }
     }
     
     private func resetSubmitButtonState() {

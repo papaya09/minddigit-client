@@ -3,40 +3,593 @@ import UIKit
 // MARK: - Network Methods
 extension OnlineGameViewController {
     
-    // MARK: - Enhanced Network Layer with Smart Polling
+    // MARK: - Enhanced Network Layer with Ultra-Smooth Gaming
     
     func startGamePolling() {
         retryCount = 0
         isRecovering = false
-        scheduleSmartPolling()
+        setupOptimizedURLSession()
+        initializeNetworkHealth()
+        startAdaptivePolling()
         
         // Immediate fetch
-        fetchGameStateWithRetry()
-        print("🔄 Started smart game polling with enhanced recovery")
+        fetchGameStateWithSilentRetry()
+        print("🎯 Started adaptive smart polling with client cache")
+    }
+    
+    // MARK: - 🎯 Adaptive Smart Polling & Client Cache System
+    
+    private func initializeNetworkHealth() {
+        networkHealth = [
+            "successRate": 1.0,
+            "avgResponseTime": 0.0,
+            "consecutiveErrors": 0,
+            "totalRequests": 0,
+            "successfulRequests": 0
+        ]
+        
+        adaptivePollingConfig = [
+            "baseInterval": 0.5,
+            "currentInterval": 0.5,
+            "minInterval": 0.2,
+            "maxInterval": 5.0,
+            "errorMultiplier": 1.5,
+            "successDivider": 1.2
+        ]
+        
+        print("🎯 Network health tracking initialized")
+    }
+    
+    private func startAdaptivePolling() {
+        ultraFastTimer?.invalidate()
+        backgroundSyncTimer?.invalidate()
+        
+        let currentInterval = adaptivePollingConfig["currentInterval"] as? TimeInterval ?? 0.5
+        
+        ultraFastTimer = Timer.scheduledTimer(withTimeInterval: currentInterval, repeats: true) { [weak self] _ in
+            self?.adaptiveStateCheck()
+        }
+        
+        print("🎯 Adaptive polling started with \(currentInterval)s interval")
+    }
+    
+    private func adaptiveStateCheck() {
+        // Prevent concurrent requests
+        if isQuickCheckInProgress { return }
+        
+        // Rate limiting
+        let now = Date.timeIntervalSinceReferenceDate
+        if now - lastQuickCheckTime < 0.1 { return }
+        lastQuickCheckTime = now
+        
+        isQuickCheckInProgress = true
+        
+        // Track request
+        trackNetworkRequest()
+        
+        // Use cached data first, then sync with server
+        displayCachedDataIfAvailable()
+        quickStateCheckWithSilentRetry()
+    }
+    
+    private func fetchGameStateWithSilentRetry() {
+        // Start with cached data
+        displayCachedDataIfAvailable()
+        
+        // Silent fetch from server
+        silentFetchGameState { [weak self] success in
+            if success {
+                self?.trackNetworkSuccess()
+                self?.adjustPollingForSuccess()
+            } else {
+                self?.trackNetworkError()
+                self?.adjustPollingForError()
+                self?.scheduleRetry()
+            }
+        }
+    }
+    
+    private func displayCachedDataIfAvailable() {
+        if !cachedGameHistory.isEmpty {
+            DispatchQueue.main.async { [weak self] in
+                self?.updateGameHistoryFromCache()
+            }
+        }
+    }
+    
+    private func updateGameHistoryFromCache() {
+        // Update UI with cached history
+        if !cachedGameHistory.isEmpty {
+            let historySignature = createHistorySignature(cachedGameHistory)
+            
+            if currentHistorySignature != historySignature {
+                currentHistorySignature = historySignature
+                updateGameHistory(cachedGameHistory)
+            }
+        }
+    }
+    
+    // MARK: - Connection Pooling Setup
+    private func setupOptimizedURLSession() {
+        let config = URLSessionConfiguration.default
+        
+        // Optimize for gaming
+        config.httpMaximumConnectionsPerHost = 10
+        config.requestCachePolicy = .reloadIgnoringLocalCacheData
+        config.timeoutIntervalForRequest = 5.0
+        config.timeoutIntervalForResource = 10.0
+        
+        // Connection pooling for better performance
+        config.httpShouldUsePipelining = true
+        config.httpShouldSetCookies = false
+        
+        // Reduce overhead
+        config.urlCache = nil
+        config.urlCredentialStorage = nil
+        
+        sharedURLSession = URLSession(configuration: config)
+        print("⚡ Optimized URL session configured for gaming")
+    }
+    
+    // MARK: - 🎯 Network Health Tracking
+    
+    private func trackNetworkRequest() {
+        let totalRequests = (networkHealth["totalRequests"] as? Int ?? 0) + 1
+        networkHealth["totalRequests"] = totalRequests
+    }
+    
+    private func trackNetworkSuccess() {
+        let successfulRequests = (networkHealth["successfulRequests"] as? Int ?? 0) + 1
+        let totalRequests = networkHealth["totalRequests"] as? Int ?? 1
+        
+        networkHealth["successfulRequests"] = successfulRequests
+        networkHealth["successRate"] = Double(successfulRequests) / Double(totalRequests)
+        networkHealth["consecutiveErrors"] = 0
+        
+        print("🎯 Network success: \(networkHealth["successRate"] ?? 0.0)")
+    }
+    
+    private func trackNetworkError() {
+        let consecutiveErrors = (networkHealth["consecutiveErrors"] as? Int ?? 0) + 1
+        let totalRequests = networkHealth["totalRequests"] as? Int ?? 1
+        let successfulRequests = networkHealth["successfulRequests"] as? Int ?? 0
+        
+        networkHealth["consecutiveErrors"] = consecutiveErrors
+        networkHealth["successRate"] = Double(successfulRequests) / Double(totalRequests)
+        
+        print("🎯 Network error: consecutive=\(consecutiveErrors), rate=\(networkHealth["successRate"] ?? 0.0)")
+    }
+    
+    // MARK: - 🎯 Adaptive Polling Adjustment
+    
+    private func adjustPollingForSuccess() {
+        let currentInterval = adaptivePollingConfig["currentInterval"] as? TimeInterval ?? 0.5
+        let successDivider = adaptivePollingConfig["successDivider"] as? Double ?? 1.2
+        let minInterval = adaptivePollingConfig["minInterval"] as? TimeInterval ?? 0.2
+        
+        let newInterval = max(currentInterval / successDivider, minInterval)
+        adaptivePollingConfig["currentInterval"] = newInterval
+        
+        restartAdaptivePolling()
+        print("🎯 Polling faster: \(newInterval)s (success)")
+    }
+    
+    private func adjustPollingForError() {
+        let currentInterval = adaptivePollingConfig["currentInterval"] as? TimeInterval ?? 0.5
+        let errorMultiplier = adaptivePollingConfig["errorMultiplier"] as? Double ?? 1.5
+        let maxInterval = adaptivePollingConfig["maxInterval"] as? TimeInterval ?? 5.0
+        
+        let newInterval = min(currentInterval * errorMultiplier, maxInterval)
+        adaptivePollingConfig["currentInterval"] = newInterval
+        
+        restartAdaptivePolling()
+        print("🎯 Polling slower: \(newInterval)s (error)")
+    }
+    
+    private func restartAdaptivePolling() {
+        ultraFastTimer?.invalidate()
+        let currentInterval = adaptivePollingConfig["currentInterval"] as? TimeInterval ?? 0.5
+        
+        ultraFastTimer = Timer.scheduledTimer(withTimeInterval: currentInterval, repeats: true) { [weak self] _ in
+            self?.adaptiveStateCheck()
+        }
+    }
+    
+    private func scheduleRetry() {
+        let retryDelay = silentRetryConfig["retryDelay"] as? TimeInterval ?? 1.0
+        
+        DispatchQueue.main.asyncAfter(deadline: .now() + retryDelay) { [weak self] in
+            self?.fetchGameStateWithSilentRetry()
+        }
+    }
+    
+    // MARK: - 🎯 Silent Network Methods
+    
+    private func quickStateCheckWithSilentRetry() {
+        let now = Date.timeIntervalSinceReferenceDate
+        let url = "\(baseURL)/room/quick-status"
+        let parameters = [
+            "roomId": roomId,
+            "playerId": playerId,
+            "lastUpdate": String(Int(now))
+        ]
+        
+        var urlComponents = URLComponents(string: url)!
+        urlComponents.queryItems = parameters.map { URLQueryItem(name: $0.key, value: $0.value) }
+        
+        var request = URLRequest(url: urlComponents.url!)
+        request.httpMethod = "GET"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.setValue("no-cache", forHTTPHeaderField: "Cache-Control")
+        request.timeoutInterval = 3.0
+        
+        let requestStartTime = now
+        
+        sharedURLSession.dataTask(with: request) { [weak self] data, response, error in
+            let responseTime = (Date.timeIntervalSinceReferenceDate - requestStartTime) * 1000 // Response time tracking
+            
+            defer {
+                DispatchQueue.main.async {
+                    self?.isQuickCheckInProgress = false
+                }
+            }
+            
+            guard let self = self else { return }
+            
+            // Track response time for adaptive polling
+            self.updatePerformanceMetrics(responseTime: responseTime, endpoint: "quick-status")
+            
+            if let data = data,
+               let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+               json["success"] as? Bool == true {
+                // Success - update cache and UI
+                self.trackNetworkSuccess()
+                self.adjustPollingForSuccess()
+                self.updateCacheFromQuickResponse(json)
+                
+                DispatchQueue.main.async {
+                    self.processQuickUpdate(json)
+                }
+            } else {
+                // Silent error - just track and continue
+                self.trackNetworkError()
+                self.adjustPollingForError()
+                
+                // Only retry if not too many consecutive errors
+                let consecutiveErrors = self.networkHealth["consecutiveErrors"] as? Int ?? 0
+                let maxErrors = self.silentRetryConfig["maxConsecutiveErrors"] as? Int ?? 10
+                
+                if consecutiveErrors < maxErrors {
+                    print("🎯 Silent retry (\(consecutiveErrors)/\(maxErrors))")
+                } else {
+                    print("🎯 Max errors reached, backing off")
+                }
+            }
+        }.resume()
+    }
+    
+    private func silentFetchGameState(completion: @escaping (Bool) -> Void) {
+        let url = "\(baseURL)/room/status-local"
+        let parameters = [
+            "roomId": roomId,
+            "playerId": playerId
+        ]
+        
+        var urlComponents = URLComponents(string: url)!
+        urlComponents.queryItems = parameters.map { URLQueryItem(name: $0.key, value: $0.value) }
+        
+        var request = URLRequest(url: urlComponents.url!)
+        request.httpMethod = "GET"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.setValue("no-cache", forHTTPHeaderField: "Cache-Control")
+        request.timeoutInterval = 5.0
+        
+        sharedURLSession.dataTask(with: request) { [weak self] data, response, error in
+            guard let self = self else { 
+                completion(false)
+                return 
+            }
+            
+            if let data = data,
+               let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+               json["success"] as? Bool == true {
+                
+                // Update cache
+                self.updateCacheFromStateResponse(json)
+                
+                DispatchQueue.main.async {
+                    self.processGameState(json)
+                }
+                completion(true)
+            } else {
+                completion(false)
+            }
+        }.resume()
+    }
+    
+    // MARK: - 🎯 Cache Management
+    
+    private func updateCacheFromQuickResponse(_ json: [String: Any]) {
+        if let room = json["room"] as? [String: Any] {
+            historyCache["lastQuickUpdate"] = Date.timeIntervalSinceReferenceDate
+            historyCache["gameState"] = room["gameState"]
+            historyCache["currentTurn"] = room["currentTurn"]
+            historyCache["historyCount"] = room["historyCount"]
+        }
+    }
+    
+    private func updateCacheFromStateResponse(_ json: [String: Any]) {
+        if let room = json["room"] as? [String: Any] {
+            historyCache["lastStateUpdate"] = Date.timeIntervalSinceReferenceDate
+            historyCache["room"] = room
+            
+            // Cache game state
+            if let gameState = room["gameState"] as? String {
+                historyCache["gameState"] = gameState
+            }
+            
+            if let currentTurn = room["currentTurn"] as? String {
+                historyCache["currentTurn"] = currentTurn
+            }
+        }
+    }
+    
+
+    
+    // MARK: - Background Sync (2s for comprehensive data)
+    private func startBackgroundSync() {
+        backgroundSyncTimer?.invalidate()
+        
+        // 🔄 BACKGROUND: 2s comprehensive sync
+        backgroundSyncTimer = Timer.scheduledTimer(withTimeInterval: 2.0, repeats: true) { [weak self] _ in
+            self?.backgroundSync()
+        }
+        
+        print("🔄 Background sync started: 2s intervals")
+    }
+    
+    // MARK: - Performance Monitoring & Adaptive Optimization
+    
+    private func updatePerformanceMetrics(responseTime: Double, endpoint: String) {
+        let now = Date.timeIntervalSinceReferenceDate
+        
+        // Update moving average
+        let key = "\(endpoint)_avg"
+        let currentAvg = performanceMetrics[key] as? Double ?? 0
+        let newAvg = (currentAvg * 0.8) + (responseTime * 0.2) // Weighted average
+        performanceMetrics[key] = newAvg
+        
+        // Track last update
+        performanceMetrics["\(endpoint)_last"] = now
+        
+        // Auto-optimize based on performance
+        if adaptivePollingEnabled {
+            adaptPollingToPerformance(endpoint: endpoint, responseTime: responseTime, average: newAvg)
+        }
+    }
+    
+    private func adaptPollingToPerformance(endpoint: String, responseTime: Double, average: Double) {
+        // Adaptive optimization based on performance
+        if endpoint == "quick-status" {
+            // Adjust ultra-fast polling based on quick-status performance
+            if average > 500 { // > 500ms average
+                print("⚠️ Slow quick-status (\(Int(average))ms), reducing frequency")
+                adjustUltraFastPolling(interval: 0.5) // Slow down to 500ms
+            } else if average < 100 { // < 100ms average, very fast
+                print("⚡ Fast quick-status (\(Int(average))ms), increasing frequency")
+                adjustUltraFastPolling(interval: 0.15) // Speed up to 150ms
+            } else if average < 200 { // < 200ms average, good performance
+                adjustUltraFastPolling(interval: 0.2) // Standard 200ms
+            }
+        }
+        
+        // Monitor overall health
+        let totalRequests = (performanceMetrics["total_requests"] as? Int ?? 0) + 1
+        performanceMetrics["total_requests"] = totalRequests
+        
+        if totalRequests % 50 == 0 { // Every 50 requests
+            logPerformanceStatus()
+        }
+    }
+    
+    private func adjustUltraFastPolling(interval: TimeInterval) {
+        ultraFastTimer?.invalidate()
+        
+        ultraFastTimer = Timer.scheduledTimer(withTimeInterval: interval, repeats: true) { [weak self] _ in
+            self?.quickStateCheck()
+        }
+        
+        print("🔧 Ultra-fast polling adjusted to \(Int(interval * 1000))ms")
+    }
+    
+    private func logPerformanceStatus() {
+        let quickAvg = performanceMetrics["quick-status_avg"] as? Double ?? 0
+        let statusAvg = performanceMetrics["status-local_avg"] as? Double ?? 0
+        let historyAvg = performanceMetrics["history-local_avg"] as? Double ?? 0
+        let totalRequests = performanceMetrics["total_requests"] as? Int ?? 0
+        
+        print("📊 Performance Status:")
+        print("   Quick Status: \(Int(quickAvg))ms avg")
+        print("   Full Status: \(Int(statusAvg))ms avg") 
+        print("   History: \(Int(historyAvg))ms avg")
+        print("   Total Requests: \(totalRequests)")
+        
+        // Show performance feedback to user if needed
+        if quickAvg > 1000 || statusAvg > 3000 {
+            DispatchQueue.main.async { [weak self] in
+                self?.showPerformanceOptimization()
+            }
+        }
+    }
+    
+    private func showPerformanceOptimization() {
+        let optimizationLabel = UILabel()
+        optimizationLabel.text = "🚀 Performance optimizing..."
+        optimizationLabel.font = UIFont.systemFont(ofSize: 11)
+        optimizationLabel.textColor = UIColor.systemTeal
+        optimizationLabel.textAlignment = .center
+        optimizationLabel.alpha = 0
+        optimizationLabel.translatesAutoresizingMaskIntoConstraints = false
+        
+        view.addSubview(optimizationLabel)
+        NSLayoutConstraint.activate([
+            optimizationLabel.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor, constant: 90),
+            optimizationLabel.centerXAnchor.constraint(equalTo: view.centerXAnchor)
+        ])
+        
+        // Fade in and out
+        UIView.animate(withDuration: 0.3, animations: {
+            optimizationLabel.alpha = 1.0
+        }) { _ in
+            UIView.animate(withDuration: 0.5, delay: 1.5, animations: {
+                optimizationLabel.alpha = 0
+            }) { _ in
+                optimizationLabel.removeFromSuperview()
+            }
+        }
+    }
+    
+    // Enhanced quick state check with performance monitoring
+    private func quickStateCheck() {
+        // Prevent duplicate requests
+        guard !isRecovering && !isQuickCheckInProgress else { return }
+        
+        let now = Date.timeIntervalSinceReferenceDate
+        
+        // Rate limiting: minimum 100ms between requests
+        guard now - lastQuickCheckTime >= 0.1 else { return }
+        
+        isQuickCheckInProgress = true
+        lastQuickCheckTime = now
+        
+        let requestStartTime = now
+        
+        let url = "\(baseURL)/room/quick-status"
+        let parameters = [
+            "roomId": roomId,
+            "playerId": playerId,
+            "lastUpdate": String(Int(now))
+        ]
+        
+        var urlComponents = URLComponents(string: url)!
+        urlComponents.queryItems = parameters.map { URLQueryItem(name: $0.key, value: $0.value) }
+        
+        var request = URLRequest(url: urlComponents.url!)
+        request.httpMethod = "GET"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.setValue("no-cache", forHTTPHeaderField: "Cache-Control")
+        request.timeoutInterval = 2.0 // Very short timeout for quick checks
+        
+        sharedURLSession.dataTask(with: request) { [weak self] data, response, error in
+            let responseTime = (Date.timeIntervalSinceReferenceDate - requestStartTime) * 1000 // ms
+            
+            defer {
+                DispatchQueue.main.async {
+                    self?.isQuickCheckInProgress = false
+                }
+            }
+            
+            guard let self = self else { return }
+            
+            // Update performance metrics
+            self.updatePerformanceMetrics(responseTime: responseTime, endpoint: "quick-status")
+            
+            guard let data = data,
+                  let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+                  json["success"] as? Bool == true else {
+                return
+            }
+            
+            DispatchQueue.main.async {
+                self.processQuickUpdate(json)
+            }
+        }.resume()
+    }
+    
+    // Background comprehensive sync
+    func backgroundSync() {
+        guard !isRecovering && !isBackgroundSyncInProgress else { return }
+        
+        isBackgroundSyncInProgress = true
+        
+        // Parallel requests for maximum speed
+        let group = DispatchGroup()
+        
+        group.enter()
+        fetchGameState {
+            group.leave()
+        }
+        
+        group.enter()
+        fetchGameHistory {
+            group.leave()
+        }
+        
+        group.notify(queue: .main) {
+            self.isBackgroundSyncInProgress = false
+            print("🔄 Background sync completed")
+        }
+    }
+    
+    // Process quick updates (minimal overhead)
+    private func processQuickUpdate(_ json: [String: Any]) {
+        guard let room = json["room"] as? [String: Any] else { return }
+        
+        // Check for turn changes (most critical for smooth gameplay)
+        if let newTurn = room["currentTurn"] as? String,
+           newTurn != currentTurn {
+            print("⚡ Quick turn update: \(currentTurn) → \(newTurn)")
+            
+            currentTurn = newTurn
+            isMyTurn = (currentTurn == playerId)
+            
+            // Immediate UI update
+            updateTurnUI()
+            updateKeypadButtonsState()
+            
+            // Haptic feedback for turn change
+            let impactFeedback = UIImpactFeedbackGenerator(style: .light)
+            impactFeedback.impactOccurred()
+        }
+        
+        // Check for game state changes
+        if let newState = room["gameState"] as? String,
+           newState != gameState {
+            print("⚡ Quick state update: \(gameState) → \(newState)")
+            gameState = newState
+        }
+        
+        // Check for new history entries (count only for quick check)
+        if let historyCount = room["historyCount"] as? Int {
+            let currentCount = historyStackView.arrangedSubviews.count
+            if historyCount > currentCount {
+                print("⚡ New history detected: \(currentCount) → \(historyCount)")
+                // Trigger background sync for full history
+                backgroundSync()
+            }
+        }
     }
     
     private func scheduleSmartPolling() {
-        gameTimer?.invalidate()
-        
-        // 🚨 ADAPTIVE POLLING: Adjust based on game length to prevent server overload
+        // Keep ultra-fast polling but adjust background sync
         let gameLength = historyStackView.arrangedSubviews.count
-        var baseInterval: TimeInterval = isMyTurn ? 3.0 : 1.0
         
-        // Slow down polling for longer games to prevent network errors
+        backgroundSyncTimer?.invalidate()
+        
+        // Adaptive background sync based on game length
+        var syncInterval: TimeInterval = 2.0
         if gameLength > 20 {
-            baseInterval *= 1.5  // 50% slower for long games
-            print("⏳ Slowing polling for long game (length: \(gameLength))")
+            syncInterval = 3.0  // Slower for long games
         }
         if gameLength > 40 {
-            baseInterval *= 2.0  // Even slower for very long games
-            print("🐌 Further slowing polling for very long game")
+            syncInterval = 5.0  // Even slower for very long games
         }
         
-        gameTimer = Timer.scheduledTimer(withTimeInterval: baseInterval, repeats: true) { [weak self] _ in
-            self?.fetchGameStateWithRetry()
+        backgroundSyncTimer = Timer.scheduledTimer(withTimeInterval: syncInterval, repeats: true) { [weak self] _ in
+            self?.backgroundSync()
         }
         
-        print("⏱️ Scheduled adaptive polling: \(baseInterval)s (isMyTurn: \(isMyTurn), gameLength: \(gameLength))")
+        print("⏱️ Adjusted background sync: \(syncInterval)s (gameLength: \(gameLength))")
     }
     
     // Start aggressive polling after player actions
@@ -117,9 +670,15 @@ extension OnlineGameViewController {
         gameTimer = nil
         aggressivePollingTimer?.invalidate()
         aggressivePollingTimer = nil
+        ultraFastTimer?.invalidate()
+        ultraFastTimer = nil
+        backgroundSyncTimer?.invalidate()
+        backgroundSyncTimer = nil
         retryCount = 0
         isRecovering = false
         aggressivePollingCount = 0
+        pendingOptimisticUpdates.removeAll()
+        performanceMetrics.removeAll()
         print("⏹️ Stopped all polling and reset recovery state")
     }
     
@@ -152,7 +711,7 @@ extension OnlineGameViewController {
                 
                 // For long games, offer user options instead of automatic recovery
                 DispatchQueue.main.async { [weak self] in
-                    self?.showLongGameRecoveryOptions()
+                    self?.performSilentLongGameRecovery()
                 }
                 return
             }
@@ -184,30 +743,59 @@ extension OnlineGameViewController {
         }
     }
     
-    private func showLongGameRecoveryOptions() {
-        let alert = UIAlertController(
-            title: "Connection Issues", 
-            message: "This game has been running for a while and may be experiencing connection issues. How would you like to proceed?", 
-            preferredStyle: .alert
-        )
+    private func performSilentLongGameRecovery() {
+        print("🎯 Performing silent recovery for long game")
         
-        alert.addAction(UIAlertAction(title: "🔄 Reset Game State", style: .default) { [weak self] _ in
-            self?.performGameStateReset()
-        })
+        // Automatic silent recovery strategy
+        let gameLength = historyStackView.arrangedSubviews.count
         
-        alert.addAction(UIAlertAction(title: "🔧 Manual Refresh", style: .default) { [weak self] _ in
-            self?.manualRefresh()
-            self?.retryCount = 0
-            self?.isRecovering = false
-        })
+        if gameLength > 50 {
+            // Very long game - reset to prevent memory issues
+            print("🎯 Auto-resetting very long game (\(gameLength) moves)")
+            performSilentGameStateReset()
+        } else if gameLength > 30 {
+            // Long game - manual refresh
+            print("🎯 Auto-refreshing long game (\(gameLength) moves)")
+            silentManualRefresh()
+        } else {
+            // Medium game - just continue trying
+            print("🎯 Continuing with adaptive polling")
+            retryCount = 0
+            isRecovering = false
+            startAdaptivePolling()
+        }
+    }
+    
+    private func performSilentGameStateReset() {
+        print("🎯 Silent game state reset")
         
-        alert.addAction(UIAlertAction(title: "⏳ Keep Trying", style: .cancel) { [weak self] _ in
-            self?.retryCount = 0
-            self?.isRecovering = false
-            self?.scheduleSmartPolling()
-        })
+        // Reset counters silently
+        retryCount = 0
+        isRecovering = false
         
-        present(alert, animated: true)
+        // Clear cache
+        cachedGameHistory.removeAll()
+        historyCache.removeAll()
+        
+        // Restart adaptive polling
+        startAdaptivePolling()
+        
+        // Silent fetch
+        fetchGameStateWithSilentRetry()
+    }
+    
+    private func silentManualRefresh() {
+        print("🎯 Silent manual refresh")
+        
+        retryCount = 0
+        isRecovering = false
+        
+        // Display cached data while refreshing
+        displayCachedDataIfAvailable()
+        
+        // Silent fetch fresh data
+        fetchGameStateWithSilentRetry()
+        fetchGameHistory()
     }
     
     private func performGameStateReset() {
@@ -280,14 +868,17 @@ extension OnlineGameViewController {
         
         let requestStartTime = Date.timeIntervalSinceReferenceDate
         
-        URLSession.shared.dataTask(with: request) { [weak self] data, response, error in
+        sharedURLSession.dataTask(with: request) { [weak self] data, response, error in
+            let responseTime = (Date.timeIntervalSinceReferenceDate - requestStartTime) * 1000 // ms
+            
             defer { completion?() }
             
             guard let self = self else { 
                 return 
             }
             
-            let responseTime = (Date.timeIntervalSinceReferenceDate - requestStartTime) * 1000 // ms
+            // Update performance metrics
+            self.updatePerformanceMetrics(responseTime: responseTime, endpoint: "status-local")
             
             if let error = error {
                 print("❌ Network error (Vercel):", error.localizedDescription)
@@ -350,41 +941,122 @@ extension OnlineGameViewController {
     }
     
     func fetchGameHistory(completion: (() -> Void)? = nil) {
-        guard !roomId.isEmpty, !playerId.isEmpty else { 
+        // 🎯 First, show cached data immediately
+        displayCachedDataIfAvailable()
+        
+        // Then silently fetch fresh data
+        fetchGameHistoryWithSilentRetry { [weak self] success in
+            if success {
+                self?.trackNetworkSuccess()
+            } else {
+                self?.trackNetworkError()
+            }
             completion?()
+        }
+    }
+    
+    private func fetchGameHistoryWithSilentRetry(completion: @escaping (Bool) -> Void) {
+        guard !roomId.isEmpty, !playerId.isEmpty else { 
+            completion(false)
             return 
         }
         
         let urlString = "\(baseURL)/game/history-local?roomId=\(roomId)&playerId=\(playerId)"
         guard let url = URL(string: urlString) else { 
-            completion?()
+            completion(false)
             return 
         }
         
-        URLSession.shared.dataTask(with: url) { [weak self] data, response, error in
-            defer { completion?() }
+        let requestStartTime = Date.timeIntervalSinceReferenceDate
+        
+        sharedURLSession.dataTask(with: url) { [weak self] data, response, error in
+            let responseTime = (Date.timeIntervalSinceReferenceDate - requestStartTime) * 1000
             
-            guard let data = data,
-                  let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-                  let success = json["success"] as? Bool, success,
-                  let history = json["history"] as? [[String: Any]] else {
-                return
+            guard let self = self else { 
+                completion(false)
+                return 
             }
             
-            DispatchQueue.main.async {
-                self?.updateGameHistory(history)
+            // Update performance metrics
+            self.updatePerformanceMetrics(responseTime: responseTime, endpoint: "history-local")
+            
+            if let data = data,
+               let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+               let success = json["success"] as? Bool, success,
+               let history = json["history"] as? [[String: Any]] {
                 
-                // Check for winner
-                if let winner = json["winner"] as? [String: Any],
-                   let winnerPlayerId = winner["playerId"] as? String {
-                    if winnerPlayerId == self?.playerId {
-                        self?.showWinDialog()
-                    } else {
-                        self?.showLoseDialogNetwork(winnerName: winner["playerName"] as? String ?? "Opponent")
+                // 🎯 Update cache
+                self.cachedGameHistory = history
+                self.lastHistorySync = Date.timeIntervalSinceReferenceDate
+                
+                DispatchQueue.main.async {
+                    self.updateGameHistory(history)
+                    
+                    // Silent win/lose handling (no disruptive dialogs)
+                    if let winner = json["winner"] as? [String: Any],
+                       let winnerPlayerId = winner["playerId"] as? String {
+                        self.handleGameEndSilently(winnerId: winnerPlayerId, winnerName: winner["playerName"] as? String)
                     }
                 }
+                completion(true)
+            } else {
+                // Silent failure - don't disrupt user experience
+                print("🎯 History fetch failed silently")
+                completion(false)
             }
         }.resume()
+    }
+    
+    private func handleGameEndSilently(winnerId: String, winnerName: String?) {
+        // Subtle game end handling without disruptive dialogs
+        if winnerId == self.playerId {
+            print("🎉 Game won silently")
+            // Could add subtle celebration animation here
+        } else {
+            print("😔 Game lost silently")
+            // Could add subtle feedback here
+        }
+        
+        // Show subtle notification instead of modal dialog
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+            self.showSubtleGameEndNotification(winnerId: winnerId, winnerName: winnerName)
+        }
+    }
+    
+    private func showSubtleGameEndNotification(winnerId: String, winnerName: String?) {
+        let isWin = winnerId == self.playerId
+        let message = isWin ? "🎉 You won!" : "😔 \(winnerName ?? "Opponent") won"
+        
+        // Show as a temporary label instead of modal dialog
+        let notificationLabel = UILabel()
+        notificationLabel.text = message
+        notificationLabel.textAlignment = .center
+        notificationLabel.backgroundColor = isWin ? UIColor.systemGreen.withAlphaComponent(0.9) : UIColor.systemOrange.withAlphaComponent(0.9)
+        notificationLabel.textColor = .white
+        notificationLabel.font = UIFont.boldSystemFont(ofSize: 18)
+        notificationLabel.layer.cornerRadius = 10
+        notificationLabel.clipsToBounds = true
+        
+        view.addSubview(notificationLabel)
+        notificationLabel.translatesAutoresizingMaskIntoConstraints = false
+        NSLayoutConstraint.activate([
+            notificationLabel.centerXAnchor.constraint(equalTo: view.centerXAnchor),
+            notificationLabel.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor, constant: 20),
+            notificationLabel.heightAnchor.constraint(equalToConstant: 50),
+            notificationLabel.widthAnchor.constraint(equalToConstant: 200)
+        ])
+        
+        // Animate in and out
+        notificationLabel.alpha = 0
+        UIView.animate(withDuration: 0.3, animations: {
+            notificationLabel.alpha = 1
+        }) { _ in
+            UIView.animate(withDuration: 0.3, delay: 3.0, animations: {
+                notificationLabel.alpha = 0
+            }) { _ in
+                notificationLabel.removeFromSuperview()
+            }
+        }
     }
     
     private func processGameState(_ json: [String: Any]) {
@@ -419,17 +1091,13 @@ extension OnlineGameViewController {
         // Collect data without UI access first
         var shouldUpdateUI = false
         var shouldUpdateTurn = false
-        var newGameState = ""
-        var roomIdFromResponse = ""
         var secretText = ""
-        var newCurrentTurn = ""
         
         // Update game state with validation
         if let serverGameState = room["gameState"] as? String {
             if serverGameState != gameState {
                 let oldState = gameState
                 gameState = serverGameState
-                newGameState = serverGameState
                 shouldUpdateUI = true
                 print("🎮 Game state changed: \(oldState) → \(serverGameState)")
                 
@@ -450,8 +1118,6 @@ extension OnlineGameViewController {
                 }
             }
         }
-        
-        roomIdFromResponse = room["id"] as? String ?? roomId
         
         // Update player info with better error handling
         if let players = room["players"] as? [[String: Any]] {
@@ -500,7 +1166,6 @@ extension OnlineGameViewController {
                 print("🔄 Turn changed: '\(oldTurn)' → '\(serverCurrentTurn)'")
                 currentTurn = serverCurrentTurn
                 isMyTurn = (currentTurn == playerId)
-                newCurrentTurn = serverCurrentTurn
                 shouldUpdateTurn = true
                 shouldUpdateUI = true
                 
@@ -623,23 +1288,7 @@ extension OnlineGameViewController {
         }
     }
     
-    private func showLoseDialogNetwork(winnerName: String) {
-        stopGamePolling()
-        
-        let alert = UIAlertController(title: "😔 Game Over", 
-                                    message: "\(winnerName) won this round!\n\nBetter luck next time!", 
-                                    preferredStyle: .alert)
-        
-        alert.addAction(UIAlertAction(title: "Back to Menu", style: .default) { _ in
-            self.dismiss(animated: true)
-        })
-        
-        present(alert, animated: true)
-        
-        // Failure haptic feedback
-        let failureFeedback = UINotificationFeedbackGenerator()
-        failureFeedback.notificationOccurred(.error)
-    }
+    // Note: showLoseDialogNetwork replaced with silent handling in handleGameEndSilently
     
     // MARK: - Secret Protection Helpers
     private func isAutoGeneratedSecret(_ secret: String) -> Bool {
