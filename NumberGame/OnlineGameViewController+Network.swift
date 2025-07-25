@@ -5,11 +5,6 @@ extension OnlineGameViewController {
     
     // MARK: - Enhanced Network Layer with Smart Polling
     
-    // Aggressive polling mode for real-time responsiveness
-    private var aggressivePollingTimer: Timer?
-    private var aggressivePollingCount = 0
-    private let maxAggressivePolls = 5 // Poll 5 times aggressively, then return to normal
-    
     func startGamePolling() {
         retryCount = 0
         isRecovering = false

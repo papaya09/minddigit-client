@@ -33,6 +33,11 @@ class OnlineGameViewController: UIViewController {
     var isRecovering = false
     var lastSuccessfulResponse: [String: Any]?
     
+    // Aggressive polling properties
+    var aggressivePollingTimer: Timer?
+    var aggressivePollingCount = 0
+    let maxAggressivePolls = 5
+    
     // UI Background
     private let backgroundImageView = UIImageView()
     private let backgroundOverlay = UIView()
