@@ -111,13 +111,10 @@ extension OnlineGameViewController {
             return
         }
         
-        fetchGameState { [weak self] success in
-            if success {
-                self?.retryCount = 0
-                self?.isRecovering = false
-            } else {
-                self?.handleFetchFailure()
-            }
+        fetchGameState { [weak self] in
+            // fetchGameState completed successfully
+            self?.retryCount = 0
+            self?.isRecovering = false
         }
     }
     
