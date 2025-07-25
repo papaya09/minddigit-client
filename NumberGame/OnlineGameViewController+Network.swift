@@ -121,11 +121,13 @@ extension OnlineGameViewController {
     private func updateGameHistoryFromCache() {
         // Update UI with cached history
         if !cachedGameHistory.isEmpty {
-            let historySignature = createHistorySignature(cachedGameHistory)
+            // Simple signature based on count and content
+            let historySignature = cachedGameHistory.count + (cachedGameHistory.last?["timestamp"] as? String ?? "").hashValue
             
             if currentHistorySignature != historySignature {
                 currentHistorySignature = historySignature
-                updateGameHistory(cachedGameHistory)
+                // Use append method instead of missing updateGameHistory
+                appendNewHistoryEntries(newHistory: cachedGameHistory)
             }
         }
     }
@@ -1819,6 +1821,39 @@ extension OnlineGameViewController {
                 let bottomOffset = CGPoint(x: 0, y: max(0, scrollView.contentSize.height - scrollView.bounds.height))
                 scrollView.setContentOffset(bottomOffset, animated: true)
             }
+        }
+    }
+    
+    // MARK: - Missing Function Implementations
+    
+    private func processGameState(_ json: [String: Any]) {
+        // Handle game state updates from server response
+        if let room = json["room"] as? [String: Any] {
+            if let gameState = room["gameState"] as? String {
+                self.gameState = gameState
+            }
+            
+            if let currentTurn = room["currentTurn"] as? String {
+                self.currentTurn = currentTurn
+                self.isMyTurn = (currentTurn == playerId)
+            }
+            
+            // Handle winner
+            if let winner = json["winner"] as? [String: Any],
+               let winnerId = winner["playerId"] as? String {
+                handleGameEndSilently(winnerId: winnerId, winnerName: winner["playerName"] as? String)
+            }
+            
+            // Update UI
+            updateTurnUI()
+            updateKeypadButtonsState()
+        }
+    }
+    
+    private func updateGameHistory(_ history: [[String: Any]]) {
+        // Update history display
+        DispatchQueue.main.async {
+            self.appendNewHistoryEntries(newHistory: history)
         }
     }
 }
