@@ -18,14 +18,25 @@ extension OnlineGameViewController {
     private func scheduleSmartPolling() {
         gameTimer?.invalidate()
         
-        // Smart polling: Fast when waiting for opponent, slower when it's your turn
-        let interval: TimeInterval = isMyTurn ? 3.0 : 1.0  // Faster when waiting for opponent
+        // 🚨 ADAPTIVE POLLING: Adjust based on game length to prevent server overload
+        let gameLength = historyStackView.arrangedSubviews.count
+        var baseInterval: TimeInterval = isMyTurn ? 3.0 : 1.0
         
-        gameTimer = Timer.scheduledTimer(withTimeInterval: interval, repeats: true) { [weak self] _ in
+        // Slow down polling for longer games to prevent network errors
+        if gameLength > 20 {
+            baseInterval *= 1.5  // 50% slower for long games
+            print("⏳ Slowing polling for long game (length: \(gameLength))")
+        }
+        if gameLength > 40 {
+            baseInterval *= 2.0  // Even slower for very long games
+            print("🐌 Further slowing polling for very long game")
+        }
+        
+        gameTimer = Timer.scheduledTimer(withTimeInterval: baseInterval, repeats: true) { [weak self] _ in
             self?.fetchGameStateWithRetry()
         }
         
-        print("⏱️ Scheduled polling with interval: \(interval)s (isMyTurn: \(isMyTurn))")
+        print("⏱️ Scheduled adaptive polling: \(baseInterval)s (isMyTurn: \(isMyTurn), gameLength: \(gameLength))")
     }
     
     // Start aggressive polling after player actions
@@ -33,6 +44,14 @@ extension OnlineGameViewController {
         print("🚀 Starting aggressive polling for real-time sync")
         aggressivePollingTimer?.invalidate()
         aggressivePollingCount = 0
+        
+        // 🚨 GAME LENGTH CHECK: Reduce aggressive polling for long games
+        let gameLength = historyStackView.arrangedSubviews.count
+        if gameLength > 30 {
+            print("⚠️ Skipping aggressive polling for long game to prevent server overload")
+            scheduleSmartPolling() // Just use smart polling instead
+            return
+        }
         
         // Show visual feedback that we're syncing aggressively
         DispatchQueue.main.async { [weak self] in
@@ -126,6 +145,18 @@ extension OnlineGameViewController {
             print("🔄 Starting recovery mode")
             isRecovering = true
             
+            // 🚨 ENHANCED: Check for long game issues
+            let gameLength = historyStackView.arrangedSubviews.count
+            if gameLength > 25 {
+                print("🎮 Long game detected (\(gameLength) moves), implementing enhanced recovery")
+                
+                // For long games, offer user options instead of automatic recovery
+                DispatchQueue.main.async { [weak self] in
+                    self?.showLongGameRecoveryOptions()
+                }
+                return
+            }
+            
             // Use last successful response as fallback
             if let lastResponse = lastSuccessfulResponse {
                 print("📦 Using cached response for recovery")
@@ -140,10 +171,68 @@ extension OnlineGameViewController {
             // Reset retry count for next attempt
             retryCount = 0
             
+            // 🚨 ENHANCED: Longer recovery delay for games with many moves
+            let recoveryDelay: TimeInterval = gameLength > 15 ? 8.0 : 5.0
+            print("⏰ Scheduling recovery in \(recoveryDelay)s")
+            
             // Schedule recovery attempt
-            DispatchQueue.main.asyncAfter(deadline: .now() + 5.0) { [weak self] in
+            DispatchQueue.main.asyncAfter(deadline: .now() + recoveryDelay) { [weak self] in
                 self?.isRecovering = false
-                print("✅ Recovery mode ended, resuming normal polling")
+                print("✅ Recovery mode ended, resuming adaptive polling")
+                self?.scheduleSmartPolling() // Use adaptive polling
+            }
+        }
+    }
+    
+    private func showLongGameRecoveryOptions() {
+        let alert = UIAlertController(
+            title: "Connection Issues", 
+            message: "This game has been running for a while and may be experiencing connection issues. How would you like to proceed?", 
+            preferredStyle: .alert
+        )
+        
+        alert.addAction(UIAlertAction(title: "🔄 Reset Game State", style: .default) { [weak self] _ in
+            self?.performGameStateReset()
+        })
+        
+        alert.addAction(UIAlertAction(title: "🔧 Manual Refresh", style: .default) { [weak self] _ in
+            self?.manualRefresh()
+            self?.retryCount = 0
+            self?.isRecovering = false
+        })
+        
+        alert.addAction(UIAlertAction(title: "⏳ Keep Trying", style: .cancel) { [weak self] _ in
+            self?.retryCount = 0
+            self?.isRecovering = false
+            self?.scheduleSmartPolling()
+        })
+        
+        present(alert, animated: true)
+    }
+    
+    private func performGameStateReset() {
+        print("🔄 Performing comprehensive game state reset")
+        
+        // Reset all network states
+        retryCount = 0
+        isRecovering = false
+        lastSuccessfulResponse = nil
+        
+        // Stop all timers
+        stopGamePolling()
+        
+        // Show loading state
+        DispatchQueue.main.async { [weak self] in
+            self?.turnLabel?.text = "🔄 Resetting..."
+            self?.loadingSpinner.startAnimating()
+        }
+        
+        // Force comprehensive sync with delay to let server stabilize
+        DispatchQueue.main.asyncAfter(deadline: .now() + 2.0) { [weak self] in
+            self?.syncGameStateImmediately { [weak self] in
+                self?.loadingSpinner.stopAnimating()
+                self?.startGamePolling() // Restart polling
+                print("✅ Game state reset completed")
             }
         }
     }
