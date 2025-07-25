@@ -154,11 +154,19 @@ extension OnlineGameViewController {
     }
     
     private func submitGuessToServer(guess: String) {
+        // 🎯 DIRECT POST: Fast & Silent submission
+        prioritizeRequest(type: "guess") { [weak self] in
+            self?.performDirectGuessSubmission(guess: guess)
+        }
+    }
+    
+    private func performDirectGuessSubmission(guess: String) {
         let url = URL(string: "\(baseURL)/game/guess-local")!
         var request = URLRequest(url: url)
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        request.timeoutInterval = 10.0 // Normal timeout for server submission
+        request.setValue("no-cache", forHTTPHeaderField: "Cache-Control")
+        request.timeoutInterval = 5.0 // Fast timeout for instant feel
         
         let body = [
             "roomId": roomId,
@@ -169,27 +177,27 @@ extension OnlineGameViewController {
         do {
             request.httpBody = try JSONSerialization.data(withJSONObject: body)
         } catch {
-            print("❌ Error creating request: \(error)")
+            print("❌ Request creation failed: \(error)")
             rollbackOptimisticUpdate(type: "guess")
             return
         }
         
-        print("🎯 Submitting guess to server: \(guess)")
+        print("🚀 Direct POST: guess '\(guess)' -> \(baseURL)/game/guess-local")
         
-        URLSession.shared.dataTask(with: request) { [weak self] data, response, error in
+        // Use optimized session for better performance
+        sharedURLSession.dataTask(with: request) { [weak self] data, response, error in
             guard let self = self else { return }
             
             DispatchQueue.main.async {
                 if let error = error {
-                    print("❌ Server submission failed: \(error)")
-                    self.rollbackOptimisticUpdate(type: "guess")
-                    self.showNetworkError("Failed to submit guess. Please try again.")
+                    print("🎯 Silent error: \(error.localizedDescription)")
+                    self.handleGuessSubmissionSilently(success: false, guess: guess)
                     return
                 }
                 
                 guard let data = data else {
-                    print("❌ No server response")
-                    self.rollbackOptimisticUpdate(type: "guess")
+                    print("🎯 No response data")
+                    self.handleGuessSubmissionSilently(success: false, guess: guess)
                     return
                 }
                 
@@ -198,18 +206,42 @@ extension OnlineGameViewController {
                         if let success = json["success"] as? Bool, success {
                             self.handleSuccessfulGuessSubmission(json: json, guess: guess)
                         } else {
-                            print("❌ Server rejected guess: \(json)")
-                            self.rollbackOptimisticUpdate(type: "guess")
-                            let errorMessage = json["error"] as? String ?? "Server error"
-                            self.showNetworkError(errorMessage)
+                            print("🎯 Server rejected: \(json["error"] as? String ?? "Unknown")")
+                            self.handleGuessSubmissionSilently(success: false, guess: guess)
                         }
                     }
                 } catch {
-                    print("❌ JSON parsing error: \(error)")
-                    self.rollbackOptimisticUpdate(type: "guess")
+                    print("🎯 Parse error: \(error)")
+                    self.handleGuessSubmissionSilently(success: false, guess: guess)
                 }
             }
         }.resume()
+    }
+    
+    private func handleGuessSubmissionSilently(success: Bool, guess: String) {
+        if success {
+            print("✅ Guess submitted successfully")
+            // Clear optimistic update
+            pendingOptimisticUpdates.removeValue(forKey: "guess")
+        } else {
+            print("🎯 Guess submission failed silently, will retry in background")
+            
+            // Rollback optimistic update silently
+            rollbackOptimisticUpdate(type: "guess")
+            
+            // Schedule silent retry
+            DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
+                self.retryGuessSubmission(guess: guess)
+            }
+        }
+        
+        // Always trigger background sync for latest state
+        backgroundSync()
+    }
+    
+    private func retryGuessSubmission(guess: String) {
+        print("🔄 Silent retry: guess '\(guess)'")
+        performDirectGuessSubmission(guess: guess)
     }
     
     private func handleSuccessfulGuessSubmission(json: [String: Any], guess: String) {
@@ -285,12 +317,6 @@ extension OnlineGameViewController {
         submitButton.setTitle("🚀 LAUNCH ATTACK", for: .normal)
         submitButton.isEnabled = isMyTurn && (guessTextField.text?.count == digits)
         updateKeypadButtonsState()
-    }
-    
-    private func showNetworkError(_ message: String) {
-        let alert = UIAlertController(title: "Network Error", message: message, preferredStyle: .alert)
-        alert.addAction(UIAlertAction(title: "OK", style: .default))
-        present(alert, animated: true)
     }
     
     @objc func leaveGame() {

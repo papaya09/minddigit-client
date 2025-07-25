@@ -19,7 +19,7 @@ extension OnlineGameViewController {
     
     // MARK: - 🎯 Adaptive Smart Polling & Client Cache System
     
-    private func initializeNetworkHealth() {
+    func initializeNetworkHealth() {
         networkHealth = [
             "successRate": 1.0,
             "avgResponseTime": 0.0,
@@ -54,8 +54,21 @@ extension OnlineGameViewController {
     }
     
     private func adaptiveStateCheck() {
+        // Use request prioritization
+        prioritizeRequest(type: "quickCheck") { [weak self] in
+            self?.performAdaptiveCheck()
+        }
+    }
+    
+    private func performAdaptiveCheck() {
         // Prevent concurrent requests
         if isQuickCheckInProgress { return }
+        
+        // Optimize polling frequency based on current conditions
+        optimizePollingFrequency()
+        
+        // Smart cache sync
+        smartCacheSync()
         
         // Rate limiting
         let now = Date.timeIntervalSinceReferenceDate
@@ -72,7 +85,7 @@ extension OnlineGameViewController {
         quickStateCheckWithSilentRetry()
     }
     
-    private func fetchGameStateWithSilentRetry() {
+    func fetchGameStateWithSilentRetry() {
         // Start with cached data
         displayCachedDataIfAvailable()
         
@@ -146,6 +159,13 @@ extension OnlineGameViewController {
         networkHealth["successRate"] = Double(successfulRequests) / Double(totalRequests)
         networkHealth["consecutiveErrors"] = 0
         
+        // Update connection quality indicator
+        let successRate = networkHealth["successRate"] as? Double ?? 1.0
+        let avgResponseTime = networkHealth["avgResponseTime"] as? Double ?? 200.0
+        let consecutiveErrors = networkHealth["consecutiveErrors"] as? Int ?? 0
+        
+        updateConnectionQuality(successRate: successRate, avgResponseTime: avgResponseTime, consecutiveErrors: consecutiveErrors)
+        
         print("🎯 Network success: \(networkHealth["successRate"] ?? 0.0)")
     }
     
@@ -156,6 +176,12 @@ extension OnlineGameViewController {
         
         networkHealth["consecutiveErrors"] = consecutiveErrors
         networkHealth["successRate"] = Double(successfulRequests) / Double(totalRequests)
+        
+        // Update connection quality indicator
+        let successRate = networkHealth["successRate"] as? Double ?? 1.0
+        let avgResponseTime = networkHealth["avgResponseTime"] as? Double ?? 1000.0
+        
+        updateConnectionQuality(successRate: successRate, avgResponseTime: avgResponseTime, consecutiveErrors: consecutiveErrors)
         
         print("🎯 Network error: consecutive=\(consecutiveErrors), rate=\(networkHealth["successRate"] ?? 0.0)")
     }
@@ -1523,5 +1549,124 @@ extension OnlineGameViewController {
         DispatchQueue.main.asyncAfter(deadline: .now() + 2.0) {
             recoveryLabel.removeFromSuperview()
         }
+    }
+    
+    // MARK: - 🎯 Request Prioritization
+    
+    func prioritizeRequest(type: String, completion: @escaping () -> Void) {
+        // High priority requests (user actions)
+        let highPriorityTypes = ["guess", "setSecret", "selectDigit", "manualRefresh"]
+        
+        if highPriorityTypes.contains(type) {
+            isProcessingHighPriority = true
+            
+            // Execute immediately
+            completion()
+            
+            // Reset high priority flag after completion
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+                self.isProcessingHighPriority = false
+            }
+        } else {
+            // Low priority requests (polling)
+            if !isProcessingHighPriority {
+                completion()
+            } else {
+                // Queue the request
+                requestQueue.append(type)
+                print("🎯 Queued \(type) request (high priority in progress)")
+                
+                // Process queue after high priority completes
+                DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
+                    self.processRequestQueue()
+                }
+            }
+        }
+    }
+    
+    private func processRequestQueue() {
+        guard !isProcessingHighPriority && !requestQueue.isEmpty else { return }
+        
+        let nextRequest = requestQueue.removeFirst()
+        print("🎯 Processing queued request: \(nextRequest)")
+        
+        switch nextRequest {
+        case "quickCheck":
+            quickStateCheckWithSilentRetry()
+        case "gameState":
+            fetchGameStateWithSilentRetry()
+        case "history":
+            fetchGameHistory()
+        default:
+            print("🎯 Unknown queued request type: \(nextRequest)")
+        }
+    }
+    
+    // MARK: - 🎯 Enhanced Cache Management
+    
+    private func validateCache() -> Bool {
+        let now = Date.timeIntervalSinceReferenceDate
+        let lastUpdate = lastHistorySync
+        let cacheAgeLimit: TimeInterval = 30.0 // 30 seconds
+        
+        let isValid = (now - lastUpdate) < cacheAgeLimit && !cachedGameHistory.isEmpty
+        
+        if !isValid {
+            print("🎯 Cache invalid: age=\(Int(now - lastUpdate))s, empty=\(cachedGameHistory.isEmpty)")
+        }
+        
+        return isValid
+    }
+    
+    private func smartCacheSync() {
+        // Only sync if cache is getting stale
+        if !validateCache() {
+            print("🎯 Performing smart cache sync")
+            fetchGameHistoryWithSilentRetry { [weak self] success in
+                if success {
+                    print("🎯 Cache refreshed successfully")
+                } else {
+                    print("🎯 Cache refresh failed, using stale data")
+                }
+            }
+        } else {
+            print("🎯 Cache still fresh, skipping sync")
+        }
+    }
+    
+    private func optimizePollingFrequency() {
+        let successRate = networkHealth["successRate"] as? Double ?? 1.0
+        let consecutiveErrors = networkHealth["consecutiveErrors"] as? Int ?? 0
+        let gameLength = historyStackView.arrangedSubviews.count
+        
+        var newInterval: TimeInterval = 0.5
+        
+        // Base interval on success rate
+        if successRate > 0.9 {
+            newInterval = 0.3 // Very responsive when connection is excellent
+        } else if successRate > 0.7 {
+            newInterval = 0.8 // Moderate when connection is good
+        } else {
+            newInterval = 2.0 // Conservative when connection is poor
+        }
+        
+        // Adjust for consecutive errors
+        if consecutiveErrors > 3 {
+            newInterval *= 2.0
+        }
+        
+        // Adjust for game length (longer games need less frequent polling)
+        if gameLength > 20 {
+            newInterval *= 1.5
+        }
+        if gameLength > 40 {
+            newInterval *= 2.0
+        }
+        
+        // Apply limits
+        newInterval = max(0.2, min(5.0, newInterval))
+        
+        adaptivePollingConfig["currentInterval"] = newInterval
+        print("🎯 Optimized polling frequency: \(newInterval)s (success: \(successRate), errors: \(consecutiveErrors), length: \(gameLength))")
     }
 }

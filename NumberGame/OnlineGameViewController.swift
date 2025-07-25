@@ -84,6 +84,15 @@ class OnlineGameViewController: UIViewController {
         "showSubtleIndicator": true
     ]
     
+    // 🎯 CONNECTION QUALITY INDICATOR
+    private let connectionIndicator = UIView()
+    private let connectionLabel = UILabel()
+    private let performanceLabel = UILabel()
+    
+    // Request Prioritization
+    var requestQueue: [String] = []
+    var isProcessingHighPriority = false
+    
     // UI Background
     private let backgroundImageView = UIImageView()
     private let backgroundOverlay = UIView()
@@ -119,6 +128,11 @@ class OnlineGameViewController: UIViewController {
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.8) {
             self.startGamePolling()
         }
+        
+        // 🎯 Setup connection quality indicator
+        setupConnectionIndicator()
+        
+        print("🎮 OnlineGameViewController fully loaded and configured")
     }
     
     override func viewWillDisappear(_ animated: Bool) {
@@ -333,21 +347,119 @@ class OnlineGameViewController: UIViewController {
         print("🔄 Manual refresh triggered")
         
         // Visual feedback
-        let refreshButton = view.subviews.first { $0 is UIButton && ($0 as! UIButton).titleLabel?.text == "🔄" } as? UIButton
-        refreshButton?.transform = CGAffineTransform(rotationAngle: .pi)
+        refreshButton.setTitle("🔄", for: .normal)
+        refreshButton.isEnabled = false
         
-        UIView.animate(withDuration: 0.5, delay: 0, usingSpringWithDamping: 0.7, initialSpringVelocity: 0.5) {
-            refreshButton?.transform = CGAffineTransform.identity
+        // Reset network health and fetch fresh data
+        initializeNetworkHealth()
+        
+        // Force fresh fetch from server
+        fetchGameStateWithSilentRetry()
+        fetchGameHistory()
+        
+        // Re-enable refresh button after delay
+        DispatchQueue.main.asyncAfter(deadline: .now() + 2.0) {
+            self.refreshButton.setTitle("🔄", for: .normal)
+            self.refreshButton.isEnabled = true
+        }
+    }
+    
+    // MARK: - 🎯 Connection Quality Indicator
+    
+    private func setupConnectionIndicator() {
+        // Connection indicator setup
+        connectionIndicator.backgroundColor = UIColor.systemGreen.withAlphaComponent(0.8)
+        connectionIndicator.layer.cornerRadius = 6
+        connectionIndicator.clipsToBounds = true
+        
+        connectionLabel.text = "🟢 Excellent"
+        connectionLabel.font = UIFont.systemFont(ofSize: 12, weight: .medium)
+        connectionLabel.textColor = .white
+        connectionLabel.textAlignment = .center
+        
+        performanceLabel.text = "⚡ 200ms"
+        performanceLabel.font = UIFont.systemFont(ofSize: 10, weight: .regular)
+        performanceLabel.textColor = .white.withAlphaComponent(0.8)
+        performanceLabel.textAlignment = .center
+        
+        // Add to view hierarchy
+        view.addSubview(connectionIndicator)
+        connectionIndicator.addSubview(connectionLabel)
+        connectionIndicator.addSubview(performanceLabel)
+        
+        // Setup constraints
+        connectionIndicator.translatesAutoresizingMaskIntoConstraints = false
+        connectionLabel.translatesAutoresizingMaskIntoConstraints = false
+        performanceLabel.translatesAutoresizingMaskIntoConstraints = false
+        
+        NSLayoutConstraint.activate([
+            // Position in top-left corner, below safe area
+            connectionIndicator.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor, constant: 8),
+            connectionIndicator.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: 16),
+            connectionIndicator.heightAnchor.constraint(equalToConstant: 44),
+            connectionIndicator.widthAnchor.constraint(equalToConstant: 120),
+            
+            // Connection label layout
+            connectionLabel.topAnchor.constraint(equalTo: connectionIndicator.topAnchor, constant: 4),
+            connectionLabel.leadingAnchor.constraint(equalTo: connectionIndicator.leadingAnchor, constant: 8),
+            connectionLabel.trailingAnchor.constraint(equalTo: connectionIndicator.trailingAnchor, constant: -8),
+            connectionLabel.heightAnchor.constraint(equalToConstant: 20),
+            
+            // Performance label layout
+            performanceLabel.topAnchor.constraint(equalTo: connectionLabel.bottomAnchor),
+            performanceLabel.leadingAnchor.constraint(equalTo: connectionIndicator.leadingAnchor, constant: 8),
+            performanceLabel.trailingAnchor.constraint(equalTo: connectionIndicator.trailingAnchor, constant: -8),
+            performanceLabel.bottomAnchor.constraint(equalTo: connectionIndicator.bottomAnchor, constant: -4)
+        ])
+        
+        // Start with hidden state
+        connectionIndicator.alpha = 0.0
+        
+        // Fade in after a brief delay
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
+            UIView.animate(withDuration: 0.3) {
+                self.connectionIndicator.alpha = 1.0
+            }
         }
         
-        // Immediate comprehensive sync
-        syncGameStateImmediately {
-            print("✅ Manual refresh completed")
+        print("🎯 Connection quality indicator setup complete")
+    }
+    
+    func updateConnectionQuality(successRate: Double, avgResponseTime: Double, consecutiveErrors: Int) {
+        DispatchQueue.main.async {
+            let quality = self.determineConnectionQuality(successRate: successRate, avgResponseTime: avgResponseTime, consecutiveErrors: consecutiveErrors)
+            
+            UIView.animate(withDuration: 0.3) {
+                self.connectionIndicator.backgroundColor = quality.color
+                self.connectionLabel.text = quality.text
+                self.performanceLabel.text = "⚡ \(Int(avgResponseTime))ms"
+            }
+            
+            // Auto-hide if quality is excellent for extended period
+            if quality.level == "excellent" {
+                DispatchQueue.main.asyncAfter(deadline: .now() + 3.0) {
+                    UIView.animate(withDuration: 0.5) {
+                        self.connectionIndicator.alpha = 0.3
+                    }
+                }
+            } else {
+                UIView.animate(withDuration: 0.3) {
+                    self.connectionIndicator.alpha = 1.0
+                }
+            }
         }
-        
-        // Haptic feedback
-        let impactFeedback = UIImpactFeedbackGenerator(style: .medium)
-        impactFeedback.impactOccurred()
+    }
+    
+    private func determineConnectionQuality(successRate: Double, avgResponseTime: Double, consecutiveErrors: Int) -> (level: String, text: String, color: UIColor) {
+        if consecutiveErrors >= 5 {
+            return ("poor", "🔴 Poor", UIColor.systemRed.withAlphaComponent(0.8))
+        } else if successRate < 0.7 || avgResponseTime > 3000 {
+            return ("fair", "🟡 Fair", UIColor.systemOrange.withAlphaComponent(0.8))
+        } else if successRate < 0.9 || avgResponseTime > 1000 {
+            return ("good", "🟠 Good", UIColor.systemYellow.withAlphaComponent(0.8))
+        } else {
+            return ("excellent", "🟢 Excellent", UIColor.systemGreen.withAlphaComponent(0.8))
+        }
     }
     
     private func setupBackground() {
