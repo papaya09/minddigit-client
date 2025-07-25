@@ -5,11 +5,6 @@ extension OnlineGameViewController {
     
     // MARK: - Enhanced Network Layer with Recovery
     
-    private var retryCount = 0
-    private let maxRetries = 3
-    private var isRecovering = false
-    private var lastSuccessfulResponse: [String: Any]?
-    
     func startGamePolling() {
         retryCount = 0
         isRecovering = false
@@ -353,7 +348,7 @@ extension OnlineGameViewController {
                 guard let self = self else { return }
                 
                 if shouldUpdateUI {
-                    self.updateUI()
+                    // Update secret label if we have secret text
                     if !secretText.isEmpty {
                         self.secretLabel.text = "🔐 SECURITY CODE: \(secretText)"
                     }

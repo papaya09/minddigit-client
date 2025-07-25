@@ -51,9 +51,6 @@ extension OnlineWaitingViewController {
     }
     
     // MARK: - Enhanced Join Room with Cold Start Handling
-    private var joinRetryCount = 0
-    private let maxJoinRetries = 3
-    private let retryDelay: TimeInterval = 2.0
     
     func joinRoom() {
         guard !playerName.isEmpty else { 

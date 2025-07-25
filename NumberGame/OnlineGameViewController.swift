@@ -27,6 +27,12 @@ class OnlineGameViewController: UIViewController {
     // Network
     let baseURL = "https://minddigit-server.vercel.app/api"
     
+    // Network recovery properties
+    var retryCount = 0
+    let maxRetries = 3
+    var isRecovering = false
+    var lastSuccessfulResponse: [String: Any]?
+    
     // UI Background
     private let backgroundImageView = UIImageView()
     private let backgroundOverlay = UIView()

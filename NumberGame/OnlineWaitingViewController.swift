@@ -14,6 +14,11 @@ class OnlineWaitingViewController: UIViewController {
     var statusTimer: Timer?
     let baseURL = "https://minddigit-server.vercel.app/api"
     
+    // Join room retry properties
+    var joinRetryCount = 0
+    let maxJoinRetries = 3
+    let retryDelay: TimeInterval = 2.0
+    
     // MARK: - UI Components
     private let backgroundView = UIView()
     private let titleLabel = UILabel()
