@@ -461,42 +461,36 @@ extension OnlineGameViewController {
     }
     
     private func analyzeGuessLocally(guess: String, secret: String) -> (bulls: Int, cows: Int) {
-        print("🧮 CONTINUE GUESSING: Calculating bulls/cows for guess='\(guess)' vs secret='\(secret)'")
+        print("🧮 SIMPLE HIT COUNTING: Calculating hits for guess='\(guess)' vs secret='\(secret)'")
         
-        var bulls = 0
-        var cows = 0
+        // Simple hit counting: count how many characters from guess appear in secret
+        // Example: secret=12, guess=16 -> 1 appears in secret -> 1 hit
+        // Example: secret=12, guess=72 -> 2 appears in secret -> 1 hit  
+        // Example: secret=12, guess=89 -> neither 8 nor 9 appear in secret -> 0 hits
+        // Example: secret=12, guess=12 -> exact match -> return as bulls (exact match)
         
         let guessArray = Array(guess)
         let secretArray = Array(secret)
         
-        // Count bulls (correct position)
-        for i in 0..<guessArray.count {
-            if guessArray[i] == secretArray[i] {
-                bulls += 1
+        // Check for exact match first
+        if guess == secret {
+            print("📊 EXACT MATCH: \(secret.count) hits (perfect)")
+            return (bulls: secret.count, cows: 0) // All are "bulls" for exact match
+        }
+        
+        // Count hits: how many characters from guess appear anywhere in secret
+        var hits = 0
+        let secretSet = Set(secretArray) // Convert to set for faster lookup
+        
+        for char in guessArray {
+            if secretSet.contains(char) {
+                hits += 1
             }
         }
         
-        // Count total matches for cows calculation
-        var secretCount: [Character: Int] = [:]
-        var guessCount: [Character: Int] = [:]
-        
-        for char in secretArray {
-            secretCount[char, default: 0] += 1
-        }
-        
-        for char in guessArray {
-            guessCount[char, default: 0] += 1
-        }
-        
-        var totalMatches = 0
-        for (char, count) in guessCount {
-            totalMatches += min(count, secretCount[char, default: 0])
-        }
-        
-        cows = totalMatches - bulls // cows = total matches - bulls
-        
-        print("📊 CONTINUE GUESSING: Analysis result: \(bulls)B \(cows)C")
-        return (bulls, cows)
+        print("📊 HIT COUNT: \(hits) hits")
+        // Return hits as "bulls" for display consistency, cows = 0
+        return (bulls: hits, cows: 0)
     }
     
     private func fetchOpponentSecretForAnalysis(guess: String) {
@@ -662,6 +656,8 @@ extension OnlineGameViewController {
             return
         }
         
+        // No special checks - treat all guesses the same way
+        
         // Show result with enhanced feedback based on accuracy
         let resultMessage = getAnalysisResultMessage(bulls: bulls, cows: cows, totalDigits: opponentSecret.count)
         submitButton.setTitle(resultMessage, for: .normal)
@@ -672,9 +668,9 @@ extension OnlineGameViewController {
         secretLabel.textColor = getSecretLabelColor(bulls: bulls, totalDigits: opponentSecret.count)
         
         // Check if we decoded the secret - must match the target secret exactly
-        // Only win if the guess exactly matches the opponent's secret
         if bulls == opponentSecret.count && guess == opponentSecret {
-            // Successfully decoded enemy secret!
+            // Successfully decoded target secret!
+            print("✅ CONTINUE GUESSING SUCCESS: Player decoded target secret: \(guess)")
             submitButton.setTitle("🎉 TARGET ACQUIRED! 🎉", for: .normal)
             submitButton.backgroundColor = UIColor(red: 0.1, green: 0.9, blue: 0.1, alpha: 1.0)
             secretLabel.text = "🏆 MISSION ACCOMPLISHED!"
@@ -739,7 +735,9 @@ extension OnlineGameViewController {
         entryView.layer.borderWidth = 1
         
         let label = UILabel()
-        label.text = "🚀 \(guess) → \(analysisResult.replacingOccurrences(of: "\(bulls)B \(cows)C - ", with: ""))"
+        let hits = bulls
+        let hitText = hits == 1 ? "HIT" : "HITS"
+        label.text = "🚀 \(guess) → \(hits) \(hitText)"
         label.textColor = .white
         label.font = UIFont.systemFont(ofSize: 13, weight: .medium)
         label.textAlignment = .center
@@ -777,70 +775,42 @@ extension OnlineGameViewController {
     // MARK: - Continue Guessing Feedback Messages
     
     private func getAnalysisResultMessage(bulls: Int, cows: Int, totalDigits: Int) -> String {
-        let accuracy = bulls + cows
+        let hits = bulls // Using bulls as hit count
         
         // Special case for perfect match
-        if bulls == totalDigits {
+        if hits == totalDigits {
             return "🎯 TARGET ACQUIRED!"
         }
         
-        // High accuracy messages
-        if accuracy == totalDigits {
-            if bulls == totalDigits - 1 {
-                return "🔥 \(bulls)B \(cows)C - SO CLOSE!"
-            } else {
-                return "⚡ \(bulls)B \(cows)C - ALL DIGITS FOUND!"
-            }
+        // Hit-based messages
+        if hits == totalDigits - 1 {
+            return "🔥 \(hits) HIT - SO CLOSE!"
+        } else if hits >= totalDigits * 2 / 3 {
+            return "📈 \(hits) HITS - GETTING WARMER"
+        } else if hits >= totalDigits / 2 {
+            return "🎯 \(hits) HITS - ON THE TRAIL"
+        } else if hits > 0 {
+            return "🔍 \(hits) HIT - WEAK SIGNAL"
+        } else {
+            return "❌ 0 HITS - NO MATCH"
         }
-        
-        // Medium to high accuracy
-        if accuracy >= totalDigits * 2 / 3 {
-            return "📈 \(bulls)B \(cows)C - GETTING WARMER"
-        }
-        
-        // Medium accuracy
-        if accuracy >= totalDigits / 2 {
-            return "🎯 \(bulls)B \(cows)C - ON THE TRAIL"
-        }
-        
-        // Low accuracy
-        if accuracy > 0 {
-            return "🔍 \(bulls)B \(cows)C - WEAK SIGNAL"
-        }
-        
-        // No match
-        return "❌ \(bulls)B \(cows)C - NO MATCH"
     }
     
     private func getSecretLabelMessage(bulls: Int, cows: Int, totalDigits: Int) -> String {
-        let accuracy = bulls + cows
+        let hits = bulls // Using bulls as hit count
         
-        // High accuracy messages
-        if accuracy == totalDigits {
-            if bulls == totalDigits - 1 {
-                return "🔥 ALMOST CRACKED THE CODE!"
-            } else {
-                return "⚡ ALL DIGITS DETECTED!"
-            }
-        }
-        
-        // Medium to high accuracy
-        if accuracy >= totalDigits * 2 / 3 {
+        // Hit-based secret messages
+        if hits == totalDigits - 1 {
+            return "🔥 ALMOST CRACKED THE CODE!"
+        } else if hits >= totalDigits * 2 / 3 {
             return "📡 STRONG SIGNAL DETECTED"
-        }
-        
-        // Medium accuracy
-        if accuracy >= totalDigits / 2 {
+        } else if hits >= totalDigits / 2 {
             return "🎯 PARTIAL PATTERN FOUND"
-        }
-        
-        // Low accuracy
-        if accuracy > 0 {
+        } else if hits > 0 {
             return "🔍 WEAK TRACE DETECTED"
+        } else {
+            return "❌ NO PATTERN DETECTED"
         }
-        
-        // No match
-        return "❌ NO PATTERN DETECTED"
     }
     
     private func getSecretLabelColor(bulls: Int, totalDigits: Int) -> UIColor {
