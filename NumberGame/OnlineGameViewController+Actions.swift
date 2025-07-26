@@ -4,13 +4,13 @@ import UIKit
 extension OnlineGameViewController {
     
     @objc func keypadNumberTapped(_ sender: UIButton) {
-        print("🔢 Keypad tapped: \(sender.tag), isMyTurn: \(isMyTurn), gameState: \(gameState)")
+        // Keypad input processing
         
         // Allow input in continue guessing mode OR when it's my turn
         if gameState == "CONTINUE_GUESSING" {
-            print("✅ Continue guessing mode - allowing input")
+            // Continue guessing mode - input allowed
         } else if !isMyTurn {
-            print("❌ Keypad blocked: Not your turn")
+            // Input blocked - not your turn
             // Visual feedback for blocked tap
             sender.transform = CGAffineTransform(scaleX: 0.9, y: 0.9)
             UIView.animate(withDuration: 0.1) {
@@ -24,7 +24,7 @@ extension OnlineGameViewController {
         
         // Check if we can add more digits
         guard currentText.count < digits else {
-            print("❌ Maximum digits reached")
+            // Maximum digits reached
             // Visual feedback for max digits
             guessTextField.layer.borderColor = UIColor.systemRed.cgColor
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
@@ -50,13 +50,13 @@ extension OnlineGameViewController {
             // Text updated above
         }
         
-        print("🔢 Added digit: \(number) -> '\(newText)'")
+        // Digit added successfully
     }
     
     @objc func clearTapped() {
         // Allow clear in continue guessing mode OR when it's my turn
         guard isMyTurn || gameState == "CONTINUE_GUESSING" else {
-            print("❌ Clear blocked: Not your turn")
+            // Clear blocked - not your turn
             return
         }
         
@@ -71,7 +71,7 @@ extension OnlineGameViewController {
         let impactFeedback = UIImpactFeedbackGenerator(style: .medium)
         impactFeedback.impactOccurred()
         
-        print("🧹 Text cleared")
+        // Text cleared
     }
     
     @objc func guessTextChanged() {
@@ -91,18 +91,18 @@ extension OnlineGameViewController {
             submitButton.alpha = (isValidLength && isMyTurn) ? 1.0 : 0.5
         }
         
-        print("🔤 Guess text changed: '\(currentGuess)' (\(currentGuess.count)/\(digits)) - Valid: \(isValidLength), MyTurn: \(isMyTurn), Mode: \(gameState)")
-        print("🎯 Submit button updated: enabled=\(submitButton.isEnabled), alpha=\(submitButton.alpha)")
+        // Text validation updated
+        // Submit button state updated
     }
     
     @objc func submitGuess() {
-        print("🚀 Submit guess triggered - gameState: \(gameState), isMyTurn: \(isMyTurn)")
+        // Submit guess triggered
         print("🚀 Current guess text: '\(guessTextField.text ?? "")'")
         
         // In continue guessing mode, skip turn checking
         if gameState != "CONTINUE_GUESSING" {
             guard isMyTurn else {
-                print("❌ Submit blocked: Not your turn in normal mode")
+                // Submit blocked - not your turn
                 let alert = UIAlertController(title: "Not Your Turn", 
                                             message: "Please wait for your turn", 
                                             preferredStyle: .alert)
@@ -113,11 +113,11 @@ extension OnlineGameViewController {
         }
         
         guard let guess = guessTextField.text, !guess.isEmpty else { 
-            print("❌ Submit blocked: Empty guess")
+            // Submit blocked - empty guess
             return 
         }
         
-        print("✅ Proceeding with guess: '\(guess)'")
+        // Proceeding with guess validation
         
         if gameState == "CONTINUE_GUESSING" {
             print("🎯 Handling continue guessing mode")
@@ -236,8 +236,18 @@ extension OnlineGameViewController {
                         if let success = json["success"] as? Bool, success {
                             self.handleSuccessfulGuessSubmission(json: json, guess: guess)
                         } else {
-                            print("🎯 Server rejected: \(json["error"] as? String ?? "Unknown")")
-                            self.handleGuessSubmissionSilently(success: false, guess: guess)
+                            let errorMsg = json["error"] as? String ?? "Unknown"
+                            print("🎯 Server rejected: \(errorMsg)")
+                            
+                            // Check if room was lost and needs rejoin
+                            if let shouldRejoin = json["shouldRejoin"] as? Bool, shouldRejoin {
+                                print("🔄 Room lost - returning to lobby")
+                                DispatchQueue.main.async {
+                                    self.showRoomLostAlert()
+                                }
+                            } else {
+                                self.handleGuessSubmissionSilently(success: false, guess: guess)
+                            }
                         }
                     }
                 } catch {
@@ -314,19 +324,17 @@ extension OnlineGameViewController {
                         self.showGameOverAlert(won: true)
                     }
                 }
+            } else if gameState == "CONTINUE_GUESSING" && bulls == opponentSecret.count && bulls == guess.count {
+                // Successfully decoded enemy secret in continue mode - exact match required
+                submitButton.setTitle("🎯 SECRET DECODED!", for: .normal)
+                DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
+                    self.showContinueGuessingSuccessModal()
+                }
             } else if bulls == digits {
-                if gameState == "CONTINUE_GUESSING" {
-                    // Successfully decoded enemy secret in continue mode
-                    submitButton.setTitle("🎯 SECRET DECODED!", for: .normal)
-                    DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
-                        self.showContinueGuessingSuccessModal()
-                    }
-                } else {
-                    // Normal game win - I won!
-                    submitButton.setTitle("🏆 YOU WON!", for: .normal)
-                    DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
-                        self.showGameOverAlert(won: true)
-                    }
+                // Normal game win - I won!
+                submitButton.setTitle("🏆 YOU WON!", for: .normal)
+                DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
+                    self.showGameOverAlert(won: true)
                 }
             } else {
                 // Continue guessing or normal turn
@@ -401,7 +409,7 @@ extension OnlineGameViewController {
         
         // Immediate visual feedback
         submitButton.isEnabled = false
-        submitButton.setTitle("🔍 ANALYZING...", for: .normal)
+        submitButton.setTitle("🚀 PROBE LAUNCHED...", for: .normal)
         
         // Visual feedback with animation
         UIView.animate(withDuration: 0.2, animations: {
@@ -426,12 +434,14 @@ extension OnlineGameViewController {
     }
     
     private func performLocalAnalysis(guess: String) {
-        print("🔍 Performing local analysis: '\(guess)' vs '\(opponentSecret)'")
+        print("🔍 CONTINUE GUESSING: Analyzing guess '\(guess)' vs target '\(opponentSecret)'")
+        print("🔍 CONTINUE GUESSING: Target length: \(opponentSecret.count), Guess length: \(guess.count)")
         
         // Validate inputs
         guard !opponentSecret.isEmpty else {
-            print("❌ No opponent secret available for analysis")
-            handleContinueGuessResult(success: false, guess: guess, bulls: 0, cows: 0)
+            print("❌ CONTINUE GUESSING: No target secret available - fetching from server...")
+            // Try to fetch opponent secret if we don't have it
+            fetchOpponentSecretForAnalysis(guess: guess)
             return
         }
         
@@ -451,7 +461,7 @@ extension OnlineGameViewController {
     }
     
     private func analyzeGuessLocally(guess: String, secret: String) -> (bulls: Int, cows: Int) {
-        print("🧮 Local analysis: guess='\(guess)', secret='\(secret)'")
+        print("🧮 CONTINUE GUESSING: Calculating bulls/cows for guess='\(guess)' vs secret='\(secret)'")
         
         var bulls = 0
         var cows = 0
@@ -485,8 +495,70 @@ extension OnlineGameViewController {
         
         cows = totalMatches - bulls // cows = total matches - bulls
         
-        print("📊 Analysis result: \(bulls)B \(cows)C")
+        print("📊 CONTINUE GUESSING: Analysis result: \(bulls)B \(cows)C")
         return (bulls, cows)
+    }
+    
+    private func fetchOpponentSecretForAnalysis(guess: String) {
+        print("🔍 Fetching opponent secret for analysis...")
+        
+        let url = URL(string: "\(baseURL)/game/opponent-secret")!
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.setValue("no-cache", forHTTPHeaderField: "Cache-Control")
+        request.timeoutInterval = 10.0
+        
+        let body = [
+            "roomId": roomId,
+            "playerId": playerId
+        ]
+        
+        do {
+            request.httpBody = try JSONSerialization.data(withJSONObject: body)
+        } catch {
+            print("❌ Failed to create opponent secret request: \(error)")
+            handleContinueGuessResult(success: false, guess: guess, bulls: 0, cows: 0)
+            return
+        }
+        
+        URLSession.shared.dataTask(with: request) { [weak self] data, response, error in
+            guard let self = self else { return }
+            
+            DispatchQueue.main.async {
+                if let error = error {
+                    print("❌ Opponent secret fetch error: \(error.localizedDescription)")
+                    self.handleContinueGuessResult(success: false, guess: guess, bulls: 0, cows: 0)
+                    return
+                }
+                
+                guard let data = data else {
+                    print("❌ No data received for opponent secret")
+                    self.handleContinueGuessResult(success: false, guess: guess, bulls: 0, cows: 0)
+                    return
+                }
+                
+                do {
+                    if let json = try JSONSerialization.jsonObject(with: data) as? [String: Any] {
+                        if let success = json["success"] as? Bool, success,
+                           let secret = json["opponentSecret"] as? String {
+                            self.opponentSecret = secret
+                            print("✅ Opponent secret fetched for analysis: \(secret)")
+                            
+                            // Now perform the analysis with the fetched secret
+                            let result = self.analyzeGuessLocally(guess: guess, secret: secret)
+                            self.handleContinueGuessResult(success: true, guess: guess, bulls: result.bulls, cows: result.cows)
+                        } else {
+                            print("❌ Server error: \(json["error"] as? String ?? "Unknown error")")
+                            self.handleContinueGuessResult(success: false, guess: guess, bulls: 0, cows: 0)
+                        }
+                    }
+                } catch {
+                    print("❌ Failed to parse opponent secret response: \(error)")
+                    self.handleContinueGuessResult(success: false, guess: guess, bulls: 0, cows: 0)
+                }
+            }
+        }.resume()
     }
     
     private func submitContinueGuessToServer(guess: String) {
@@ -551,6 +623,35 @@ extension OnlineGameViewController {
         }.resume()
     }
     
+    private func showRoomLostAlert() {
+        let alert = UIAlertController(
+            title: "🔄 Connection Lost",
+            message: "The game room was lost due to server restart. Please return to lobby and start a new game.",
+            preferredStyle: .alert
+        )
+        
+        alert.addAction(UIAlertAction(title: "Return to Lobby", style: .default) { [weak self] _ in
+            self?.dismiss(animated: true)
+        })
+        
+        present(alert, animated: true)
+    }
+    
+    private func refreshHistoryDisplay() {
+        // Force refresh the history container display
+        if let historyContainer = self.historyContainer {
+            historyContainer.layoutIfNeeded()
+            
+            // Scroll to bottom to show latest entries
+            DispatchQueue.main.async {
+                if let scrollView = historyContainer.superview as? UIScrollView {
+                    let bottomOffset = CGPoint(x: 0, y: max(0, scrollView.contentSize.height - scrollView.bounds.size.height))
+                    scrollView.setContentOffset(bottomOffset, animated: true)
+                }
+            }
+        }
+    }
+    
     private func handleContinueGuessResult(success: Bool, guess: String, bulls: Int, cows: Int) {
         if !success {
             // Handle error case
@@ -561,14 +662,34 @@ extension OnlineGameViewController {
             return
         }
         
-        // Show result
-        submitButton.setTitle("📊 \(bulls)B \(cows)C", for: .normal)
+        // Show result with enhanced feedback based on accuracy
+        let resultMessage = getAnalysisResultMessage(bulls: bulls, cows: cows, totalDigits: opponentSecret.count)
+        submitButton.setTitle(resultMessage, for: .normal)
         
-        // Check if we decoded the secret
-        if bulls == digits {
+        // Update secret label with dynamic feedback
+        let secretMessage = getSecretLabelMessage(bulls: bulls, cows: cows, totalDigits: opponentSecret.count)
+        secretLabel.text = secretMessage
+        secretLabel.textColor = getSecretLabelColor(bulls: bulls, totalDigits: opponentSecret.count)
+        
+        // Check if we decoded the secret - must match the target secret exactly
+        // Only win if the guess exactly matches the opponent's secret
+        if bulls == opponentSecret.count && guess == opponentSecret {
             // Successfully decoded enemy secret!
-            submitButton.setTitle("🎯 SECRET DECODED!", for: .normal)
-            DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
+            submitButton.setTitle("🎉 TARGET ACQUIRED! 🎉", for: .normal)
+            submitButton.backgroundColor = UIColor(red: 0.1, green: 0.9, blue: 0.1, alpha: 1.0)
+            secretLabel.text = "🏆 MISSION ACCOMPLISHED!"
+            secretLabel.textColor = UIColor(red: 0.1, green: 0.9, blue: 0.1, alpha: 1.0)
+            
+            // Celebration animation
+            UIView.animate(withDuration: 0.3, animations: {
+                self.submitButton.transform = CGAffineTransform(scaleX: 1.1, y: 1.1)
+            }) { _ in
+                UIView.animate(withDuration: 0.3) {
+                    self.submitButton.transform = CGAffineTransform.identity
+                }
+            }
+            
+            DispatchQueue.main.asyncAfter(deadline: .now() + 2.0) {
                 self.showContinueGuessingSuccessModal()
             }
         } else {
@@ -580,42 +701,69 @@ extension OnlineGameViewController {
         
         // Add the guess to local history for reference
         addContinueGuessToLocalHistory(guess: guess, bulls: bulls, cows: cows)
+        
+        // Force update history display
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+            self.refreshHistoryDisplay()
+        }
     }
     
     private func addContinueGuessToLocalHistory(guess: String, bulls: Int, cows: Int) {
+        print("📝 CONTINUE GUESSING: Adding to history: \(guess) -> \(bulls)B \(cows)C")
+        
         // Create a local history entry for continue guessing
+        let analysisResult = getAnalysisResultMessage(bulls: bulls, cows: cows, totalDigits: opponentSecret.count)
         let entry: [String: Any] = [
-            "playerName": "🕵️ Intelligence Analysis",
+            "playerName": "🚀 Probe Analysis",
             "guess": guess,
             "bulls": bulls,
             "cows": cows,
             "timestamp": ISO8601DateFormatter().string(from: Date()),
-            "isContinueGuess": true
+            "isContinueGuess": true,
+            "analysisResult": analysisResult
         ]
         
         // Add to history container if available
-        guard let historyContainer = self.historyContainer else { return }
+        guard let historyContainer = self.historyContainer else { 
+            print("❌ CONTINUE GUESSING: historyContainer is nil - cannot add to history")
+            return 
+        }
         
-        let historyItemView = createHistoryItemView(
-            playerName: "🕵️ Intelligence Analysis",
-            guess: guess,
-            bulls: bulls,
-            cows: cows
-        )
+        print("✅ CONTINUE GUESSING: historyContainer found - adding visual entry")
         
-        // Special styling for continue guessing entries
-        historyItemView.backgroundColor = UIColor(red: 0.2, green: 0.4, blue: 0.6, alpha: 0.3)
-        historyItemView.layer.borderColor = UIColor(red: 0.3, green: 0.5, blue: 0.8, alpha: 0.9).cgColor
+        // Create simple history entry for continue guessing
+        let entryView = UIView()
+        entryView.backgroundColor = UIColor(red: 0.2, green: 0.4, blue: 0.6, alpha: 0.3)
+        entryView.layer.cornerRadius = 8
+        entryView.layer.borderColor = UIColor(red: 0.3, green: 0.5, blue: 0.8, alpha: 0.9).cgColor
+        entryView.layer.borderWidth = 1
+        
+        let label = UILabel()
+        label.text = "🚀 \(guess) → \(analysisResult.replacingOccurrences(of: "\(bulls)B \(cows)C - ", with: ""))"
+        label.textColor = .white
+        label.font = UIFont.systemFont(ofSize: 13, weight: .medium)
+        label.textAlignment = .center
+        label.numberOfLines = 2
+        
+        entryView.addSubview(label)
+        label.translatesAutoresizingMaskIntoConstraints = false
+        NSLayoutConstraint.activate([
+            label.centerXAnchor.constraint(equalTo: entryView.centerXAnchor),
+            label.centerYAnchor.constraint(equalTo: entryView.centerYAnchor),
+            entryView.heightAnchor.constraint(equalToConstant: 40)
+        ])
         
         // Smooth fade-in animation
-        historyItemView.alpha = 0.0
-        historyItemView.transform = CGAffineTransform(translationX: 0, y: 20)
-        historyContainer.addArrangedSubview(historyItemView)
+        entryView.alpha = 0.0
+        entryView.transform = CGAffineTransform(translationX: 0, y: 20)
+        historyContainer.addArrangedSubview(entryView)
         
         UIView.animate(withDuration: 0.3, delay: 0, options: .curveEaseOut) {
-            historyItemView.alpha = 1.0
-            historyItemView.transform = CGAffineTransform.identity
+            entryView.alpha = 1.0
+            entryView.transform = CGAffineTransform.identity
         }
+        
+        print("✅ CONTINUE GUESSING: History entry added visually")
         
         // Auto-scroll to show new entries
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
@@ -623,6 +771,91 @@ extension OnlineGameViewController {
                 let bottomOffset = CGPoint(x: 0, y: max(0, scrollView.contentSize.height - scrollView.bounds.height))
                 scrollView.setContentOffset(bottomOffset, animated: true)
             }
+        }
+    }
+    
+    // MARK: - Continue Guessing Feedback Messages
+    
+    private func getAnalysisResultMessage(bulls: Int, cows: Int, totalDigits: Int) -> String {
+        let accuracy = bulls + cows
+        
+        // Special case for perfect match
+        if bulls == totalDigits {
+            return "🎯 TARGET ACQUIRED!"
+        }
+        
+        // High accuracy messages
+        if accuracy == totalDigits {
+            if bulls == totalDigits - 1 {
+                return "🔥 \(bulls)B \(cows)C - SO CLOSE!"
+            } else {
+                return "⚡ \(bulls)B \(cows)C - ALL DIGITS FOUND!"
+            }
+        }
+        
+        // Medium to high accuracy
+        if accuracy >= totalDigits * 2 / 3 {
+            return "📈 \(bulls)B \(cows)C - GETTING WARMER"
+        }
+        
+        // Medium accuracy
+        if accuracy >= totalDigits / 2 {
+            return "🎯 \(bulls)B \(cows)C - ON THE TRAIL"
+        }
+        
+        // Low accuracy
+        if accuracy > 0 {
+            return "🔍 \(bulls)B \(cows)C - WEAK SIGNAL"
+        }
+        
+        // No match
+        return "❌ \(bulls)B \(cows)C - NO MATCH"
+    }
+    
+    private func getSecretLabelMessage(bulls: Int, cows: Int, totalDigits: Int) -> String {
+        let accuracy = bulls + cows
+        
+        // High accuracy messages
+        if accuracy == totalDigits {
+            if bulls == totalDigits - 1 {
+                return "🔥 ALMOST CRACKED THE CODE!"
+            } else {
+                return "⚡ ALL DIGITS DETECTED!"
+            }
+        }
+        
+        // Medium to high accuracy
+        if accuracy >= totalDigits * 2 / 3 {
+            return "📡 STRONG SIGNAL DETECTED"
+        }
+        
+        // Medium accuracy
+        if accuracy >= totalDigits / 2 {
+            return "🎯 PARTIAL PATTERN FOUND"
+        }
+        
+        // Low accuracy
+        if accuracy > 0 {
+            return "🔍 WEAK TRACE DETECTED"
+        }
+        
+        // No match
+        return "❌ NO PATTERN DETECTED"
+    }
+    
+    private func getSecretLabelColor(bulls: Int, totalDigits: Int) -> UIColor {
+        let bullsRatio = Double(bulls) / Double(totalDigits)
+        
+        if bullsRatio >= 0.8 {
+            return UIColor(red: 0.1, green: 0.9, blue: 0.1, alpha: 1.0) // Bright green
+        } else if bullsRatio >= 0.6 {
+            return UIColor(red: 0.9, green: 0.7, blue: 0.1, alpha: 1.0) // Gold
+        } else if bullsRatio >= 0.4 {
+            return UIColor(red: 1.0, green: 0.6, blue: 0.2, alpha: 1.0) // Orange
+        } else if bullsRatio > 0 {
+            return UIColor(red: 1.0, green: 0.4, blue: 0.2, alpha: 1.0) // Red-orange
+        } else {
+            return UIColor(red: 0.7, green: 0.7, blue: 0.7, alpha: 1.0) // Gray
         }
     }
 }

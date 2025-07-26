@@ -306,8 +306,20 @@ extension OnlineWaitingViewController {
             
             guard let success = json["success"] as? Bool, success else {
                 print("❌ API returned success=false: \(json)")
-                DispatchQueue.main.async {
-                    self?.showConnectionStatus(false)
+                
+                // Check if room was lost and needs rejoin
+                if let shouldRejoin = json["shouldRejoin"] as? Bool, shouldRejoin {
+                    print("🔄 Room lost - need to rejoin")
+                    DispatchQueue.main.async {
+                        self?.statusLabel.text = "🔄 Room lost - reconnecting..."
+                        self?.statusLabel.textColor = .systemOrange
+                        // Attempt to rejoin
+                        self?.joinRoom()
+                    }
+                } else {
+                    DispatchQueue.main.async {
+                        self?.showConnectionStatus(false)
+                    }
                 }
                 return
             }
@@ -338,7 +350,12 @@ extension OnlineWaitingViewController {
                     print("🔄 Game state changed: \(self?.gameState ?? "nil") → \(newGameState)")
                     self?.gameState = newGameState
                     self?.updateUI(for: newGameState)
-                    self?.setupSmartPolling() // Adjust polling based on new state
+                    
+                    // Only stop polling if we reach PLAYING state, don't recreate timers
+                    if newGameState == "PLAYING" {
+                        print("🎮 Game started, stopping room status polling")
+                        self?.stopPolling()
+                    }
                 }
             }
         }.resume()
@@ -365,16 +382,17 @@ extension OnlineWaitingViewController {
         request.httpBody = try? JSONSerialization.data(withJSONObject: body)
         
         URLSession.shared.dataTask(with: request) { [weak self] data, response, error in
+            // Don't reset button state immediately - wait for response
             DispatchQueue.main.async {
-                // Reset button state
-                self?.actionButton.isEnabled = true
-                self?.actionButton.setTitle("Confirm Selection", for: .normal)
                 self?.loadingSpinner.stopAnimating()
             }
             
             if let error = error {
                 print("❌ selectDigits error: \(error.localizedDescription)")
                 DispatchQueue.main.async {
+                    // Reset button for error case only
+                    self?.actionButton.isEnabled = true
+                    self?.actionButton.setTitle("Retry Confirmation", for: .normal)
                     self?.showError("Failed to send digit selection. Please try again.")
                 }
                 return
@@ -388,6 +406,9 @@ extension OnlineWaitingViewController {
                         print("❌ selectDigits error response: \(errorString)")
                     }
                     DispatchQueue.main.async {
+                        // Reset button for server error case
+                        self?.actionButton.isEnabled = true
+                        self?.actionButton.setTitle("Retry Confirmation", for: .normal)
                         self?.showError("Server error. Please try again.")
                     }
                     return
@@ -397,6 +418,9 @@ extension OnlineWaitingViewController {
             guard let data = data else {
                 print("❌ selectDigits: No response data")
                 DispatchQueue.main.async {
+                    // Reset button for no data case
+                    self?.actionButton.isEnabled = true
+                    self?.actionButton.setTitle("Retry Confirmation", for: .normal)
                     self?.showError("No response from server. Please try again.")
                 }
                 return
@@ -411,6 +435,9 @@ extension OnlineWaitingViewController {
                   let success = json["success"] as? Bool, success else {
                 print("❌ selectDigits: Invalid response or success=false")
                 DispatchQueue.main.async {
+                    // Reset button for invalid response case
+                    self?.actionButton.isEnabled = true
+                    self?.actionButton.setTitle("Retry Confirmation", for: .normal)
                     self?.showError("Failed to select digits. Please try again.")
                 }
                 return
@@ -420,6 +447,9 @@ extension OnlineWaitingViewController {
                 let newGameState = json["gameState"] as? String ?? self?.gameState ?? "DIGIT_SELECTION"
                 print("✅ selectDigits successful, new gameState: \(newGameState)")
                 print("📱 Current gameState: \(self?.gameState ?? "nil"), new gameState: \(newGameState)")
+                
+                // Mark that this player has confirmed digits
+                self?.hasConfirmedDigits = true
                 
                 // Force update UI and gameState
                 self?.gameState = newGameState

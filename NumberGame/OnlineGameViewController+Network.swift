@@ -14,7 +14,7 @@ extension OnlineGameViewController {
         
         // Immediate fetch
         fetchGameStateWithSilentRetry()
-        print("🎯 Started adaptive smart polling with client cache")
+        // Removed excessive logging
     }
     
     // MARK: - 🎯 Adaptive Smart Polling & Client Cache System
@@ -37,7 +37,7 @@ extension OnlineGameViewController {
             "successDivider": 1.2
         ]
         
-        print("🎯 Network health tracking initialized")
+        // Network health initialized
     }
     
     private func startAdaptivePolling() {
@@ -50,7 +50,7 @@ extension OnlineGameViewController {
             self?.adaptiveStateCheck()
         }
         
-        print("🎯 Adaptive polling started with \(currentInterval)s interval")
+        // Adaptive polling started
     }
     
     private func adaptiveStateCheck() {
@@ -141,7 +141,7 @@ extension OnlineGameViewController {
         config.urlCredentialStorage = nil
         
         sharedURLSession = URLSession(configuration: config)
-        print("⚡ Optimized URL session configured for gaming")
+        // URL session optimized
     }
     
     // MARK: - 🎯 Network Health Tracking
@@ -166,7 +166,7 @@ extension OnlineGameViewController {
         
         updateConnectionQuality(successRate: successRate, avgResponseTime: avgResponseTime, consecutiveErrors: consecutiveErrors)
         
-        print("🎯 Network success: \(networkHealth["successRate"] ?? 0.0)")
+        // Network success tracked
     }
     
     private func trackNetworkError() {
@@ -183,7 +183,7 @@ extension OnlineGameViewController {
         
         updateConnectionQuality(successRate: successRate, avgResponseTime: avgResponseTime, consecutiveErrors: consecutiveErrors)
         
-        print("🎯 Network error: consecutive=\(consecutiveErrors), rate=\(networkHealth["successRate"] ?? 0.0)")
+        // Network error tracked
     }
     
     // MARK: - 🎯 Adaptive Polling Adjustment
@@ -197,7 +197,7 @@ extension OnlineGameViewController {
         adaptivePollingConfig["currentInterval"] = newInterval
         
         restartAdaptivePolling()
-        print("🎯 Polling faster: \(newInterval)s (success)")
+        // Polling accelerated
     }
     
     private func adjustPollingForError() {
@@ -209,7 +209,7 @@ extension OnlineGameViewController {
         adaptivePollingConfig["currentInterval"] = newInterval
         
         restartAdaptivePolling()
-        print("🎯 Polling slower: \(newInterval)s (error)")
+        // Polling decelerated
     }
     
     private func restartAdaptivePolling() {
@@ -286,9 +286,9 @@ extension OnlineGameViewController {
                 let maxErrors = self.silentRetryConfig["maxConsecutiveErrors"] as? Int ?? 10
                 
                 if consecutiveErrors < maxErrors {
-                    print("🎯 Silent retry (\(consecutiveErrors)/\(maxErrors))")
+                    // Silent retry in progress
                 } else {
-                    print("🎯 Max errors reached, backing off")
+                    // Max errors reached, backing off
                 }
             }
         }.resume()
@@ -371,7 +371,7 @@ extension OnlineGameViewController {
             self?.backgroundSync()
         }
         
-        print("🔄 Background sync started: 2s intervals")
+        // Background sync started
     }
     
     // MARK: - Performance Monitoring & Adaptive Optimization
@@ -399,10 +399,10 @@ extension OnlineGameViewController {
         if endpoint == "quick-status" {
             // Adjust ultra-fast polling based on quick-status performance
             if average > 500 { // > 500ms average
-                print("⚠️ Slow quick-status (\(Int(average))ms), reducing frequency")
+                // Reducing frequency due to slow response
                 adjustUltraFastPolling(interval: 0.5) // Slow down to 500ms
             } else if average < 100 { // < 100ms average, very fast
-                print("⚡ Fast quick-status (\(Int(average))ms), increasing frequency")
+                // Increasing frequency due to fast response
                 adjustUltraFastPolling(interval: 0.15) // Speed up to 150ms
             } else if average < 200 { // < 200ms average, good performance
                 adjustUltraFastPolling(interval: 0.2) // Standard 200ms
@@ -425,7 +425,7 @@ extension OnlineGameViewController {
             self?.quickStateCheck()
         }
         
-        print("🔧 Ultra-fast polling adjusted to \(Int(interval * 1000))ms")
+        // Polling interval adjusted
     }
     
     private func logPerformanceStatus() {
@@ -1166,13 +1166,14 @@ extension OnlineGameViewController {
             return
         }
         
+        print("🔍 handleGameEndSilently: winnerId='\(winnerId)', playerId='\(self.playerId)'")
         if winnerId == self.playerId {
-            print("🎉 Game won!")
+            print("🎉 Game won! ✅ Showing winner modal")
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
                 self.showGameOverAlert(won: true)
             }
         } else {
-            print("😔 Game lost!")
+            print("😔 Game lost! ❌ Showing loser modal")
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
                 self.showGameOverAlert(won: false)
             }
@@ -1182,6 +1183,9 @@ extension OnlineGameViewController {
     private func handleGameEndFromState(winnerId: String, winnerName: String?, opponentSecret: String = "") {
         // Handle game end detected from state change
         print("🏆 Game end detected from state - Winner: \(winnerId), Current player: \(playerId)")
+        
+        // Store winner info for voting system
+        self.lastGameWinner = (playerId: winnerId, playerName: winnerName ?? "Player")
         
         // Store opponent secret for continue guessing mode
         if !opponentSecret.isEmpty && winnerId != self.playerId {
@@ -1197,11 +1201,15 @@ extension OnlineGameViewController {
         
         // Only show modal if we haven't already shown one (to prevent duplicate modals)
         if gameState != "CONTINUE_GUESSING" { // Don't interrupt continue guessing mode
+            print("🏆 Winner check: winnerId='\(winnerId)', playerId='\(self.playerId)', isWinner=\(winnerId == self.playerId)")
+            print("🔍 Winner ID type: \(type(of: winnerId)), Player ID type: \(type(of: self.playerId))")
+            print("🔍 Winner ID length: \(winnerId.count), Player ID length: \(self.playerId.count)")
+            
             if winnerId == self.playerId {
-                print("🎉 You won!")
+                print("🎉 You won! ✅ Showing winner modal")
                 self.showGameOverAlert(won: true)
             } else {
-                print("😔 You lost!")
+                print("😔 You lost! ❌ Showing loser modal")
                 self.showGameOverAlert(won: false)
             }
         }
@@ -1441,7 +1449,7 @@ extension OnlineGameViewController {
         }
     }
     
-    private func updateGameHistory(_ history: [[String: Any]]) {
+    func updateGameHistory(_ history: [[String: Any]]) {
         // More sensitive comparison using actual content
         let historySignature = createHistorySignature(history)
         
@@ -1482,7 +1490,11 @@ extension OnlineGameViewController {
                 print("🏆 Found winning entry: \(playerName) with \(bulls) bulls")
                 
                 // Determine if this player is me or opponent
-                let isMyWin = playerName.lowercased().contains("player") && playerName.contains(playerId.suffix(4))
+                // Check if this is my saved player name
+                let savedPlayerName = UserDefaults.standard.string(forKey: "currentPlayerName") ?? ""
+                let isMyWin = !savedPlayerName.isEmpty && playerName == savedPlayerName
+                
+                print("🔍 Winner check: playerName='\(playerName)', savedPlayerName='\(savedPlayerName)', isMyWin=\(isMyWin)")
                 
                 // Only trigger game end if we haven't already detected it
                 if gameState != "FINISHED" && gameState != "CONTINUE_GUESSING" && !isInContinueMode && !hasShownGameEndModal {

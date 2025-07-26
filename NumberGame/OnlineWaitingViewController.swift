@@ -8,7 +8,8 @@ class OnlineWaitingViewController: UIViewController {
     var playerId: String = ""
     var position: Int = 0
     var gameState: String = "WAITING"
-    var currentDigits: Int = 4
+    var currentDigits: Int = 2
+    var hasConfirmedDigits: Bool = false // Track if this player has confirmed digit selection
     
     // Network polling
     var statusTimer: Timer?
@@ -36,7 +37,7 @@ class OnlineWaitingViewController: UIViewController {
     // Digit Selection UI
     let digitSelectionContainer = UIView()
     private let digitLabel = UILabel()
-    private let digitButtons: [UIButton] = (2...6).map { _ in UIButton(type: .system) } // Changed to 2-6 digits
+    private let digitButtons: [UIButton] = (1...4).map { _ in UIButton(type: .system) } // Changed to 1-4 digits
     
     // Secret Setting UI
     let secretContainer = UIView()
@@ -204,7 +205,7 @@ class OnlineWaitingViewController: UIViewController {
         digitSelectionContainer.addSubview(stackView)
         
         for (index, button) in digitButtons.enumerated() {
-            let digits = index + 2  // Start from 2 digits (2,3,4,5,6)
+            let digits = index + 1  // Start from 1 digit (1,2,3,4)
             button.setTitle("\(digits)D", for: .normal)
             button.backgroundColor = UIColor.systemPurple.withAlphaComponent(0.7)
             button.setTitleColor(.white, for: .normal)
@@ -557,38 +558,61 @@ class OnlineWaitingViewController: UIViewController {
                 
             case "DIGIT_SELECTION":
                 print("🔢 Showing digit selection UI")
-                self.statusLabel.text = "🔢 Choose number of digits"
-                self.statusLabel.textColor = .systemBlue
                 self.digitSelectionContainer.isHidden = false
                 self.actionButton.isHidden = false
-                self.actionButton.setTitle("Select Digits First", for: .normal)
-                self.actionButton.backgroundColor = .systemGray
-                self.actionButton.isEnabled = false
                 
-                // Set default selection to 4 digits
-                self.currentDigits = 4
-                
-                // Update button styling after UI is loaded
-                DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+                // Check if this player has already confirmed digits
+                if self.hasConfirmedDigits {
+                    print("✅ Player has confirmed digits - showing waiting state")
+                    self.statusLabel.text = "⏳ Waiting for opponent to select digits..."
+                    self.statusLabel.textColor = .systemOrange
+                    self.actionButton.setTitle("⏳ Waiting for Opponent", for: .normal)
+                    self.actionButton.backgroundColor = .systemOrange
+                    self.actionButton.isEnabled = false
+                    
+                    // Disable all digit buttons
                     self.digitButtons.forEach { button in
-                        if button.tag == 4 {
-                            button.backgroundColor = UIColor.systemGreen
-                            button.layer.borderColor = UIColor.systemYellow.cgColor
-                            button.layer.borderWidth = 3
-                            // Enable the confirm button
-                            self.actionButton.setTitle("Confirm 4 Digits", for: .normal)
-                            self.actionButton.backgroundColor = .systemBlue
-                            self.actionButton.isEnabled = true
-                        } else {
-                            button.backgroundColor = UIColor.systemPurple.withAlphaComponent(0.7)
-                            button.layer.borderColor = UIColor.white.cgColor
-                            button.layer.borderWidth = 2
+                        button.backgroundColor = UIColor.systemGray.withAlphaComponent(0.5)
+                        button.layer.borderColor = UIColor.systemGray.cgColor
+                        button.layer.borderWidth = 1
+                        button.isEnabled = false
+                    }
+                } else {
+                    print("🔢 Player needs to select digits")
+                    self.statusLabel.text = "🔢 Choose number of digits"
+                    self.statusLabel.textColor = .systemBlue
+                    self.actionButton.setTitle("Select Digits First", for: .normal)
+                    self.actionButton.backgroundColor = .systemGray
+                    self.actionButton.isEnabled = false
+                    
+                    // Set default selection to 2 digits
+                    self.currentDigits = 2
+                    
+                    // Update button styling after UI is loaded
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+                        self.digitButtons.forEach { button in
+                            button.isEnabled = true
+                            if button.tag == 2 {
+                                button.backgroundColor = UIColor.systemGreen
+                                button.layer.borderColor = UIColor.systemYellow.cgColor
+                                button.layer.borderWidth = 3
+                                // Enable the confirm button
+                                self.actionButton.setTitle("Confirm 2 Digits", for: .normal)
+                                self.actionButton.backgroundColor = .systemBlue
+                                self.actionButton.isEnabled = true
+                            } else {
+                                button.backgroundColor = UIColor.systemPurple.withAlphaComponent(0.7)
+                                button.layer.borderColor = UIColor.white.cgColor
+                                button.layer.borderWidth = 2
+                            }
                         }
                     }
                 }
                 
             case "SECRET_SETTING":
                 print("🔐 Showing secret setting UI")
+                // Reset digit confirmation flag when moving to next stage
+                self.hasConfirmedDigits = false
                 self.statusLabel.text = "🔐 Set your secret number"
                 self.statusLabel.textColor = .systemPurple
                 self.secretContainer.isHidden = false
